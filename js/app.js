@@ -12,7 +12,7 @@
   const S = {
     sym: D.SYMBOLS.find((s) => s.id === load("fa_sym", "BTCUSDT")) || D.SYMBOLS[0],
     tf: D.TIMEFRAMES.find((t) => t.id === load("fa_tf", "1h")) || D.TIMEFRAMES[2],
-    keys: load("fa_keys", { model: "claude-sonnet-5-5" }), thr: load("fa_thr", 70),
+    keys: Object.assign({ provider: "gemini", models: {} }, load("fa_keys", {})), thr: load("fa_thr", 70),
     candles: [], res: null, fund: null, source: "", note: "",
     ov: load("fa_ov", { ema: true, bb: false, vwap: false, st: false, levels: true, plan: true }),
     journal: load("fa_journal", []), chat: [], img: null, busy: false, timer: null,
@@ -72,7 +72,7 @@
       showSymbolLogo: true, colorTheme: "dark", isTransparent: true, displayMode: "adaptive", locale: "en",
     });
     new ResizeObserver(() => resizeCharts()).observe($("#chartMain").parentElement);
-    renderJournal();
+    renderJournal(); updateFundHint();
     run();
   }
 
@@ -277,14 +277,18 @@
 
   /* ---------------- AI: fundamentals ---------------- */
   function requireKey() {
-    if (!S.keys.anthropic) { openSettings(); return false; } return true;
+    if (!S.keys[S.keys.provider || "gemini"]) { openSettings(); return false; } return true;
+  }
+  function updateFundHint() {
+    const p = FA.ai.PROVIDERS[S.keys.provider || "gemini"];
+    $("#fundHint").textContent = p.search ? "جستجوی زنده‌ی وب با کلید شما" : "تیترهای زنده از GDELT/CryptoCompare + تحلیل مدل " + p.label;
   }
   async function runFund() {
     if (!requireKey() || !S.res || S.res.error) return;
     const btn = $("#btnFund"), box = $("#fundBox"); btn.disabled = true; box.className = "empty"; box.textContent = "در حال جستجوی اخبار و تحلیل… (۲۰ تا ۶۰ ثانیه)";
     try {
       const r = S.res, tech = `${r.direction}, confluence ${r.confluence}, tech ${r.tech.toFixed(2)}, price action ${r.pa.toFixed(2)}`;
-      const f = await FA.ai.fundamental(S.keys, { name: S.sym.name, tv: S.sym.tv, tf: S.tf.label, price: fmt(r.price, r.price), tech, today: new Date().toISOString().slice(0, 10) });
+      const f = await FA.ai.fundamental(S.keys, { name: S.sym.name, tv: S.sym.tv, tf: S.tf.label, price: fmt(r.price, r.price), tech, sym: S.sym, today: new Date().toISOString().slice(0, 10) });
       S.fund = f; renderFund(); reanalyze();
     } catch (e) { box.className = "empty"; box.innerHTML = `<span class="loss">${esc(e.message)}</span>`; }
     finally { btn.disabled = false; }
@@ -294,6 +298,7 @@
     const bias = { bullish: "صعودی", bearish: "نزولی", neutral: "خنثی" };
     const dir = (d) => ({ bullish: "▲", bearish: "▼", neutral: "●" }[d] || "●");
     box.innerHTML = `<div class="fbias"><span class="pill ${f.bias === "bullish" ? "long" : f.bias === "bearish" ? "short" : "none"}">${bias[f.bias] || esc(f.bias)}</span><span class="hint">امتیاز ${f.score.toFixed(2)} · اطمینان ${Math.round(f.confidence)}%</span></div>
+      <div class="hint">منبع: ${esc(f.sourceNote || "")}</div>
       <p>${esc(f.summary)}</p>
       ${(f.drivers || []).map((d) => `<div class="fcard imp-${esc(d.impact)}"><b>${dir(d.direction)} ${esc(d.headline)}</b>${esc(d.why)}<br><small>${esc(d.source)}</small></div>`).join("")}
       ${(f.upcoming_events || []).length ? "<h4>رویدادهای پیش‌رو</h4>" : ""}
@@ -401,17 +406,29 @@
     };
     rd.readAsText(f);
   }
+  let tmp = null, curProv = "gemini";
+  function fillProv(p) {
+    curProv = p; const m = FA.ai.PROVIDERS[p];
+    $("#kProv").value = p; $("#kKey").value = tmp[p] || ""; $("#kModel").value = (tmp.models && tmp.models[p]) || m.model;
+    $("#kKeyHelp").innerHTML = `<a href="${m.keyUrl}" target="_blank" rel="noopener" style="color:var(--acc)">گرفتن کلید</a>`;
+    $("#kProvNote").textContent = m.search ? "این سرویس جستجوی زنده‌ی وب دارد؛ تحلیل خبری دقیق‌تر است ولی پولی است." : "رایگان است (با محدودیت تعداد درخواست). جستجوی وب ندارد؛ تیترهای خبری را اپ از GDELT/CryptoCompare می‌گیرد و به مدل می‌دهد، پس عمق تحلیل خبری کمتر از حالت پولی است.";
+  }
+  function stashProv() { tmp[curProv] = $("#kKey").value.trim(); tmp.models = Object.assign({}, tmp.models, { [curProv]: $("#kModel").value.trim() }); }
   function openSettings() {
-    $("#kAnth").value = S.keys.anthropic || ""; $("#kTwelve").value = S.keys.twelve || ""; $("#kModel").value = S.keys.model || "claude-sonnet-5-5"; $("#kThr").value = S.thr;
+    tmp = JSON.parse(JSON.stringify(S.keys));
+    $("#kProv").innerHTML = Object.entries(FA.ai.PROVIDERS).map(([id, m]) => `<option value="${id}">${esc(m.label)}</option>`).join("");
+    $("#kProv").onchange = (e) => { stashProv(); fillProv(e.target.value); };
+    fillProv(tmp.provider || "gemini");
+    $("#kTwelve").value = S.keys.twelve || ""; $("#kThr").value = S.thr;
     $("#dlgSettings").showModal();
   }
   $("#dlgSettings").addEventListener("close", () => {
     if ($("#dlgSettings").returnValue !== "save") return;
-    S.keys = { anthropic: $("#kAnth").value.trim(), twelve: $("#kTwelve").value.trim(), model: $("#kModel").value };
-    S.thr = Math.max(40, Math.min(95, +$("#kThr").value || 70)); save("fa_keys", S.keys); save("fa_thr", S.thr);
+    stashProv(); tmp.provider = $("#kProv").value; tmp.twelve = $("#kTwelve").value.trim(); S.keys = tmp;
+    S.thr = Math.max(40, Math.min(95, +$("#kThr").value || 70)); save("fa_keys", S.keys); save("fa_thr", S.thr); updateFundHint();
     if (S.candles.length) reanalyze();
   });
-  $("#kClear").onclick = () => { S.keys = { model: S.keys.model }; save("fa_keys", S.keys); $("#kAnth").value = $("#kTwelve").value = ""; };
+  $("#kClear").onclick = () => { S.keys = { provider: S.keys.provider || "gemini", models: {} }; save("fa_keys", S.keys); $("#kKey").value = $("#kTwelve").value = ""; tmp = JSON.parse(JSON.stringify(S.keys)); };
 
   init();
 })();

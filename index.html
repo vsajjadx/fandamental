@@ -81,7 +81,7 @@
       <div class="rpane card" id="r-fund">
         <div class="row">
           <button id="btnFund" class="btn primary">بررسی اخبار روز با AI</button>
-          <span class="hint">جستجوی زنده‌ی وب با کلید Anthropic شما</span>
+          <span class="hint" id="fundHint"></span>
         </div>
         <div id="fundBox" class="empty">تحلیل خبری اجرا نشده. نتیجه‌ی آن به‌عنوان سومین لایه وارد امتیاز هم‌سویی می‌شود.</div>
         <h4>اخبار این نماد (TradingView)</h4>
@@ -134,14 +134,13 @@
   <dialog id="dlgSettings">
     <form method="dialog" id="setForm">
       <h3>تنظیمات</h3>
-      <label>کلید API ی Anthropic <small>(برای تحلیل خبر و هم‌فکری)</small>
-        <input id="kAnth" type="password" autocomplete="off" placeholder="sk-ant-…" dir="ltr"></label>
-      <label>مدل
-        <select id="kModel" dir="ltr">
-          <option value="claude-sonnet-5-5">claude-sonnet-5-5</option>
-          <option value="claude-opus-5-5">claude-opus-5-5</option>
-          <option value="claude-haiku-5-5">claude-haiku-5-5</option>
-        </select></label>
+      <label>سرویس هوش مصنوعی
+        <select id="kProv"></select></label>
+      <label>کلید API <small id="kKeyHelp"></small>
+        <input id="kKey" type="password" autocomplete="off" dir="ltr"></label>
+      <label>مدل <small>(در صورت تغییر نام مدل‌ها می‌توانی دستی عوض کنی)</small>
+        <input id="kModel" dir="ltr" autocomplete="off"></label>
+      <p class="hint" id="kProvNote"></p>
       <label>کلید Twelve Data <small>(رایگان؛ برای فارکس، نقره، شاخص‌ها)</small>
         <input id="kTwelve" type="password" autocomplete="off" placeholder="twelvedata api key" dir="ltr"></label>
       <label>حداقل امتیاز هم‌سویی برای «سیگنال معتبر»
