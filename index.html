@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Fandamental — دستیار تحلیل بازار</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <div><b>Fandamental</b><small>فاندامنتال + تکنیکال + پرایس‌اکشن</small></div>
+    </div>
+    <div class="controls">
+      <select id="symbol" aria-label="نماد"></select>
+      <div class="seg" id="tfs" role="group" aria-label="تایم‌فریم"></div>
+      <button id="btnRun" class="btn primary">تحلیل کن</button>
+      <button id="btnCsv" class="btn ghost" title="وارد کردن کندل‌ها از فایل CSV">CSV</button>
+      <input id="csvFile" type="file" accept=".csv,.txt" hidden>
+      <button id="btnSettings" class="btn ghost">⚙ تنظیمات</button>
+    </div>
+  </header>
+
+  <div id="tape" class="tape" dir="ltr"></div>
+
+  <main class="layout">
+    <aside class="watch card" id="watch" aria-label="لیست بازارها"></aside>
+
+    <section class="center">
+      <nav class="tabs" id="centerTabs">
+        <button data-tab="analytic" class="on">چارت تحلیلی (با سیگنال)</button>
+        <button data-tab="tv">چارت TradingView</button>
+        <button data-tab="overview">نمای کلی بازارها</button>
+      </nav>
+
+      <div id="pane-analytic" class="pane on card">
+        <div class="chartbar">
+          <label><input type="checkbox" data-ov="ema" checked> EMA</label>
+          <label><input type="checkbox" data-ov="bb"> بولینگر</label>
+          <label><input type="checkbox" data-ov="vwap"> VWAP</label>
+          <label><input type="checkbox" data-ov="st"> Supertrend</label>
+          <label><input type="checkbox" data-ov="levels" checked> حمایت/مقاومت</label>
+          <label><input type="checkbox" data-ov="plan" checked> نقاط ورود/تارگت</label>
+          <label class="push"><input type="checkbox" id="autoRefresh"> به‌روزرسانی خودکار (۶۰ث)</label>
+        </div>
+        <div class="charts" dir="ltr">
+          <div id="chartMain"></div>
+          <div class="sublabel">RSI (14)</div>
+          <div id="chartRsi"></div>
+          <div class="sublabel">MACD (12,26,9)</div>
+          <div id="chartMacd"></div>
+        </div>
+        <div id="status" class="status" role="status"></div>
+      </div>
+
+      <div id="pane-tv" class="pane card"><div id="tvChart" dir="ltr"></div></div>
+      <div id="pane-overview" class="pane card"><div id="tvOverview" dir="ltr"></div></div>
+    </section>
+
+    <aside class="right">
+      <nav class="tabs small" id="rightTabs">
+        <button data-rt="signal" class="on">سیگنال</button>
+        <button data-rt="ind">اندیکاتورها</button>
+        <button data-rt="fund">فاندامنتال</button>
+        <button data-rt="chat">هم‌فکری AI</button>
+        <button data-rt="bt">بک‌تست</button>
+        <button data-rt="journal">ژورنال</button>
+      </nav>
+
+      <div class="rpane on card" id="r-signal">
+        <div id="signalBox" class="empty">برای شروع «تحلیل کن» را بزنید.</div>
+      </div>
+
+      <div class="rpane card" id="r-ind"><div id="indBox" class="empty">هنوز تحلیلی انجام نشده.</div></div>
+
+      <div class="rpane card" id="r-fund">
+        <div class="row">
+          <button id="btnFund" class="btn primary">بررسی اخبار روز با AI</button>
+          <span class="hint">جستجوی زنده‌ی وب با کلید Anthropic شما</span>
+        </div>
+        <div id="fundBox" class="empty">تحلیل خبری اجرا نشده. نتیجه‌ی آن به‌عنوان سومین لایه وارد امتیاز هم‌سویی می‌شود.</div>
+        <h4>اخبار این نماد (TradingView)</h4>
+        <div id="tvNews" dir="ltr" class="tvbox"></div>
+        <h4>تقویم اقتصادی</h4>
+        <div id="tvCal" dir="ltr" class="tvbox"></div>
+      </div>
+
+      <div class="rpane card" id="r-chat">
+        <div id="chatLog" class="chatlog"><div class="empty">با من درباره‌ی تحلیل فعلی، اشتباهات معاملاتی و مدیریت ریسک هم‌فکری کنید. می‌توانید اسکرین‌شات چارت هم بفرستید.</div></div>
+        <div id="attachChip" class="chip" hidden></div>
+        <div class="chatin">
+          <textarea id="chatText" rows="2" placeholder="سؤال یا توضیح معامله‌ات را بنویس…"></textarea>
+          <div class="row">
+            <button id="btnAttach" class="btn ghost" title="پیوست تصویر چارت">📎</button>
+            <input id="imgFile" type="file" accept="image/*" hidden>
+            <button id="btnReview" class="btn ghost">بررسی اشتباهات ژورنال</button>
+            <button id="btnSend" class="btn primary push">ارسال</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="rpane card" id="r-bt">
+        <p class="hint">همین موتور سیگنال روی کندل‌های فعلی به‌صورت walk-forward (بدون نگاه به آینده) اجرا می‌شود تا دقت واقعی‌اش روی این نماد و تایم‌فریم دیده شود.</p>
+        <div class="row"><button id="btnBt" class="btn primary">اجرای بک‌تست</button><span id="btProg" class="hint"></span></div>
+        <div id="btBox" class="empty">نتیجه‌ای وجود ندارد.</div>
+      </div>
+
+      <div class="rpane card" id="r-journal">
+        <form id="jForm" class="jform">
+          <select id="jSide"><option value="long">خرید</option><option value="short">فروش</option></select>
+          <input id="jEntry" type="number" step="any" placeholder="ورود" required>
+          <input id="jSl" type="number" step="any" placeholder="حد ضرر" required>
+          <input id="jTp" type="number" step="any" placeholder="تارگت">
+          <select id="jRes"><option value="open">باز</option><option value="win">برد</option><option value="loss">باخت</option><option value="be">سر‌به‌سر</option></select>
+          <input id="jR" type="number" step="any" placeholder="R نهایی (اختیاری)">
+          <input id="jNote" class="wide" placeholder="یادداشت: چرا وارد شدی؟ چه حسی داشتی؟">
+          <button class="btn primary" type="submit">ثبت</button>
+          <button class="btn ghost" type="button" id="jFill">پر کردن از سیگنال</button>
+        </form>
+        <div id="jStats" class="jstats"></div>
+        <div id="jList"></div>
+        <div class="row"><button class="btn ghost" id="jExport">خروجی JSON</button></div>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="foot">ابزار آموزشی و کمکی است؛ مشاوره‌ی مالی نیست. «امتیاز هم‌سویی» احتمال سود نیست و هیچ سیستمی دقت ثابتی تضمین نمی‌کند. با ریسک کم معامله کنید.</footer>
+
+  <dialog id="dlgSettings">
+    <form method="dialog" id="setForm">
+      <h3>تنظیمات</h3>
+      <label>کلید API ی Anthropic <small>(برای تحلیل خبر و هم‌فکری)</small>
+        <input id="kAnth" type="password" autocomplete="off" placeholder="sk-ant-…" dir="ltr"></label>
+      <label>مدل
+        <select id="kModel" dir="ltr">
+          <option value="claude-sonnet-5-5">claude-sonnet-5-5</option>
+          <option value="claude-opus-5-5">claude-opus-5-5</option>
+          <option value="claude-haiku-5-5">claude-haiku-5-5</option>
+        </select></label>
+      <label>کلید Twelve Data <small>(رایگان؛ برای فارکس، نقره، شاخص‌ها)</small>
+        <input id="kTwelve" type="password" autocomplete="off" placeholder="twelvedata api key" dir="ltr"></label>
+      <label>حداقل امتیاز هم‌سویی برای «سیگنال معتبر»
+        <input id="kThr" type="number" min="40" max="95" step="5"></label>
+      <p class="warn">کلیدها فقط در مرورگر همین دستگاه (localStorage) ذخیره می‌شوند. این اپ را با کلید خودتان روی سایت عمومی منتشر نکنید؛ هر بازدیدکننده می‌تواند آن را ببیند.</p>
+      <div class="row">
+        <button class="btn ghost" type="button" id="kClear">پاک کردن کلیدها</button>
+        <button class="btn ghost push" value="cancel">بستن</button>
+        <button class="btn primary" value="save" id="kSave">ذخیره</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="js/indicators.js"></script>
+  <script src="js/priceaction.js"></script>
+  <script src="js/signal.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/backtest.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
