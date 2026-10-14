@@ -43,6 +43,17 @@ const noVol = FA.signal.analyze(c.map((x) => ({ ...x, v: 0 })));
 check("works without volume (fewer indicators)", !noVol.error && noVol.items.length < res.items.length, `${noVol.items.length} vs ${res.items.length}`);
 check("rejects <60 candles", !!FA.signal.analyze(c.slice(0, 30)).error);
 
+// --- early-signal path + P&L fields
+const early = FA.signal.analyze(c, { early: true });
+check("early path valid signalType", ["entry", "early", "none"].includes(early.signalType), early.signalType);
+check("early timing string when early", early.signalType !== "early" || typeof early.timing === "string");
+const ePlan = FA.signal.analyze(c, { early: true, marketEntry: true });
+if (ePlan.plan) {
+  const p = ePlan.plan, s2 = p.side === "long" ? 1 : -1;
+  check("early plan SL on correct side", s2 * (p.entry - p.sl) > 0);
+  check("early plan RR positive", p.rr.every((x) => x > 0));
+}
+
 // --- backtest
 (async () => {
   const t0 = Date.now();
@@ -52,7 +63,12 @@ check("rejects <60 candles", !!FA.signal.analyze(c.slice(0, 30)).error);
   check("every trade has valid result", bt.trades.every((x) => ["win", "loss", "expired"].includes(x.res)));
   const s0 = bt.summary[0];
   check("bucket totals consistent", s0.wins + s0.losses + s0.expired === s0.count);
-  console.log(bt.summary.map((s) => `>=${s.threshold}: n=${s.count} win=${s.winRate === null ? "-" : s.winRate.toFixed(1)}% avgR=${s.avgR === null ? "-" : s.avgR.toFixed(2)}`).join("\n"));
+  check("P&L: grossWin >= 0", s0.grossWin >= 0, String(s0.grossWin));
+  check("P&L: grossLoss >= 0", s0.grossLoss >= 0, String(s0.grossLoss));
+  check("P&L: maxDD >= 0", s0.maxDD >= 0, String(s0.maxDD));
+  check("P&L: totalR = grossWin - grossLoss", Math.abs(s0.totalR - (s0.grossWin - s0.grossLoss)) < 1e-9);
+  check("P&L: profitFactor consistent", s0.profitFactor === null || s0.profitFactor === Infinity || Math.abs(s0.profitFactor - s0.grossWin / s0.grossLoss) < 1e-9 || (s0.grossLoss === 0));
+  console.log(bt.summary.map((s) => `>=${s.threshold}: n=${s.count} win=${s.winRate === null ? "-" : s.winRate.toFixed(1)}% avgR=${s.avgR === null ? "-" : s.avgR.toFixed(2)} totalR=${s.totalR === null ? "-" : s.totalR.toFixed(2)} PF=${s.profitFactor == null ? "-" : s.profitFactor === Infinity ? "∞" : s.profitFactor.toFixed(2)} maxDD=${s.maxDD.toFixed(2)}`).join("\n"));
   console.log(fails ? `\n${fails} FAILED` : "\nALL PASSED");
   process.exit(fails ? 1 : 0);
 })();

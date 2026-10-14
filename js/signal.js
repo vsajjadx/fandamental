@@ -6,6 +6,9 @@
   const I = FA.ind, P = FA.pa, ok = I.ok;
   const clamp = (x, a = -1, b = 1) => Math.max(a, Math.min(b, x));
   const sgn = (x) => (x > 0 ? 1 : x < 0 ? -1 : 0);
+  // guard: any NaN score becomes 0 so one half-ready indicator can never poison the whole sum
+  const sN = (x, d) => (ok(x) ? clamp(x, -1, 1) : d || 0);
+  const sd = (x, y) => (ok(x) && ok(y) ? sgn(x - y) : 0);
 
   function digitsFor(p) { return p >= 1000 ? 2 : p >= 100 ? 3 : p >= 10 ? 4 : p >= 1 ? 5 : 6; }
   function fmt(x, ref) { return ok(x) ? x.toFixed(digitsFor(ref === undefined ? Math.abs(x) : ref)) : "—"; }
@@ -47,14 +50,14 @@
       const es = [S.ema20[i], S.ema50[i], S.ema200[i]].filter(ok);
       let s = 0; es.forEach((e) => (s += price > e ? 1 : -1));
       const stack = (S.ema20[i] > S.ema50[i] ? 1 : -1) + (ok(S.ema200[i]) ? (S.ema50[i] > S.ema200[i] ? 1 : -1) : 0);
-      add("ema", "EMA 20/50/200", "trend", `${f(S.ema20[i])} / ${f(S.ema50[i])} / ${f(S.ema200[i])}`, (s / es.length) * 0.6 + (stack / (ok(S.ema200[i]) ? 2 : 1)) * 0.4, 1.6);
+      add("ema", "EMA 20/50/200", "trend", `${f(S.ema20[i])} / ${f(S.ema50[i])} / ${f(S.ema200[i])}`, sN((s / es.length) * 0.6 + (stack / (ok(S.ema200[i]) ? 2 : 1)) * 0.4), 1.6);
       add("hma", "Hull MA 21", "trend", f(S.hma[i]), (price > S.hma[i] ? 0.4 : -0.4) + (S.hma[i] > S.hma[i - 1] ? 0.3 : -0.3), 1);
     }
-    { const m = S.macd; add("macd", "MACD (12,26,9)", "trend", `${f2(m.line[i])} / ${f2(m.signal[i])}`, (m.line[i] > m.signal[i] ? 0.5 : -0.5) + (m.hist[i] > m.hist[i - 1] ? 0.3 : -0.3) + (m.line[i] > 0 ? 0.2 : -0.2), 1.5); }
+    { const m = S.macd; add("macd", "MACD (12,26,9)", "trend", `${f2(m.line[i])} / ${f2(m.signal[i])}`, sN((m.line[i] > m.signal[i] ? 0.5 : -0.5) + (m.hist[i] > m.hist[i - 1] ? 0.3 : -0.3) + (m.line[i] > 0 ? 0.2 : -0.2)), 1.5); }
     { const a = S.adx; add("adx", "ADX / DI", "trend", `ADX ${f2(a.adx[i])} (+${f2(a.pdi[i])}/-${f2(a.mdi[i])})`, sgn(a.pdi[i] - a.mdi[i]) * (a.adx[i] >= 20 ? 1 : 0.4), 1.5); }
     {
       const k = S.ichi, top = Math.max(k.spanA[i], k.spanB[i]), bot = Math.min(k.spanA[i], k.spanB[i]);
-      if (ok(top)) add("ichi", "Ichimoku", "trend", price > top ? "بالای ابر" : price < bot ? "زیر ابر" : "داخل ابر", (price > top ? 0.7 : price < bot ? -0.7 : 0) + (k.tenkan[i] > k.kijun[i] ? 0.3 : -0.3), 1.5);
+      if (ok(top)) add("ichi", "Ichimoku", "trend", price > top ? "بالای ابر" : price < bot ? "زیر ابر" : "داخل ابر", sN((price > top ? 0.7 : price < bot ? -0.7 : 0) + (k.tenkan[i] > k.kijun[i] ? 0.3 : -0.3)), 1.5);
     }
     add("cross", "SMA 50/200", "trend", ok(S.sma200[i]) ? (S.sma50[i] > S.sma200[i] ? "ناحیه‌ی Golden Cross" : "ناحیه‌ی Death Cross") : "—", ok(S.sma200[i]) ? (S.sma50[i] > S.sma200[i] ? 0.6 : -0.6) : NaN, 1);
     add("st", "Supertrend (10,3)", "trend", S.st.dir[i] === 1 ? "صعودی" : "نزولی", S.st.dir[i], 1.4);
@@ -68,13 +71,13 @@
     }
 
     /* ---------- oscillators / momentum ---------- */
-    { const r = S.rsi[i]; add("rsi", "RSI (14)", "osc", f2(r), r < 30 ? 0.7 : r > 70 ? -0.7 : clamp((r - 50) / 30, -0.6, 0.6), 1.2); }
-    { const k = S.stoch.k[i], d = S.stoch.d[i]; add("stoch", "Stochastic (14,3,3)", "osc", `${f2(k)} / ${f2(d)}`, k < 20 && k > d ? 0.8 : k > 80 && k < d ? -0.8 : sgn(k - d) * 0.4, 1); }
-    { const k = S.stochRsi.k[i], d = S.stochRsi.d[i]; add("srsi", "Stoch RSI", "osc", `${f2(k)} / ${f2(d)}`, k < 20 && k > d ? 0.8 : k > 80 && k < d ? -0.8 : sgn(k - d) * 0.4, 0.9); }
-    { const x = S.cci[i]; add("cci", "CCI (20)", "osc", f2(x), x < -100 && x > S.cci[i - 1] ? 0.7 : x > 100 && x < S.cci[i - 1] ? -0.7 : clamp(x / 200, -0.5, 0.5), 1); }
+    { const r = S.rsi[i]; add("rsi", "RSI (14)", "osc", f2(r), sN(r < 30 ? 0.7 : r > 70 ? -0.7 : (ok(r) ? clamp((r - 50) / 30, -0.6, 0.6) : 0)), 1.2); }
+    { const k = S.stoch.k[i], d = S.stoch.d[i]; add("stoch", "Stochastic (14,3,3)", "osc", `${f2(k)} / ${f2(d)}`, sN(k < 20 && k > d ? 0.8 : k > 80 && k < d ? -0.8 : sd(k, d) * 0.4), 1); }
+    { const k = S.stochRsi.k[i], d = S.stochRsi.d[i]; add("srsi", "Stoch RSI", "osc", `${f2(k)} / ${f2(d)}`, sN(k < 20 && k > d ? 0.8 : k > 80 && k < d ? -0.8 : sd(k, d) * 0.4), 0.9); }
+    { const x = S.cci[i]; add("cci", "CCI (20)", "osc", f2(x), sN(x < -100 && x > S.cci[i - 1] ? 0.7 : x > 100 && x < S.cci[i - 1] ? -0.7 : (ok(x) ? clamp(x / 200, -0.5, 0.5) : 0)), 1); }
     { const x = S.wr[i]; add("wr", "Williams %R", "osc", f2(x), x < -80 ? 0.5 : x > -20 ? -0.5 : 0, 0.8); }
-    { const b = S.bb, x = b.pctB[i]; add("bb", "Bollinger Bands", "osc", `%B ${f2(x)}`, x < 0 ? 0.5 : x > 1 ? -0.5 : (x - 0.5) * 0.8, 1); }
-    { const bull = S.h[i] - S.ema13[i], bear = S.l[i] - S.ema13[i]; add("elder", "Elder Ray (13)", "osc", `${f2(bull)} / ${f2(bear)}`, (bull > 0 ? 0.3 : -0.3) + (bear > 0 ? 0.3 : -0.3) + (bear > S.l[i - 1] - S.ema13[i - 1] ? 0.2 : -0.2), 0.8); }
+    { const b = S.bb, x = b.pctB[i]; add("bb", "Bollinger Bands", "osc", `%B ${f2(x)}`, sN(x < 0 ? 0.5 : x > 1 ? -0.5 : (ok(x) ? (x - 0.5) * 0.8 : 0)), 1); }
+    { const bull = S.h[i] - S.ema13[i], bear = S.l[i] - S.ema13[i]; add("elder", "Elder Ray (13)", "osc", `${f2(bull)} / ${f2(bear)}`, sN((bull > 0 ? 0.3 : -0.3) + (bear > 0 ? 0.3 : -0.3) + (bear > S.l[i - 1] - S.ema13[i - 1] ? 0.2 : -0.2)), 0.8); }
     add("roc", "ROC (12)", "osc", f2(S.roc[i]), sgn(S.roc[i]) * 0.5, 0.8);
     add("mom", "Momentum (10)", "osc", f(S.mom[i]), sgn(S.mom[i]) * 0.5, 0.7);
     add("ao", "Awesome Oscillator", "osc", f2(S.ao[i]), (S.ao[i] > 0 ? 0.4 : -0.4) + (S.ao[i] > S.ao[i - 1] ? 0.3 : -0.3), 0.9);
@@ -83,7 +86,7 @@
 
     /* ---------- volume (only when the data source provides real volume) ---------- */
     if (S.hasVol) {
-      { const x = S.mfi[i]; add("mfi", "MFI (14)", "vol", f2(x), x < 20 ? 0.6 : x > 80 ? -0.6 : (x - 50) / 60, 0.9); }
+      { const x = S.mfi[i]; add("mfi", "MFI (14)", "vol", f2(x), sN(x < 20 ? 0.6 : x > 80 ? -0.6 : (ok(x) ? (x - 50) / 60 : 0)), 0.9); }
       add("obv", "OBV", "vol", S.obv[i].toFixed(0), S.obv[i] > S.obvMa[i] ? 0.5 : -0.5, 0.8);
       add("cmf", "Chaikin Money Flow", "vol", f2(S.cmf[i]), clamp(S.cmf[i] * 4), 0.8);
       add("fi", "Force Index (13)", "vol", S.fi[i].toFixed(0), sgn(S.fi[i]) * 0.5, 0.7);
@@ -151,8 +154,38 @@
     const buys = all.filter((x) => x.verdict === "buy").length, sells = all.filter((x) => x.verdict === "sell").length;
 
     /* ---------- trade plan ---------- */
-    let plan = null;
-    if (direction !== "none" && ok(A) && A > 0) plan = buildPlan(direction, price, A, lv, st, fib, S.ema20[i], !!opt.marketEntry);
+    // «سیگنال زودهنگام»: الگوهای آماده‌سازی حرکت (پولبک/برخورد/فشردگی) را قبل از تایید کامل روند می‌گیرد
+    function earlySignal() {
+      if (!ok(A) || A <= 0 || i < 1) return { signal: null };
+      const px = S.c[i], prev = c[i - 1];
+      const pullback = ok(S.ema20[i]) && (px - S.ema20[i]) / A > -1.1 && (px - S.ema20[i]) / A < -0.15;
+      const bullRev = prev.c < prev.o && c[i].c > c[i].o && c[i].c > (prev.h + prev.l) / 2;
+      const bearRev = prev.c > prev.o && c[i].c < c[i].o && c[i].c < (prev.h + prev.l) / 2;
+      const nearSup = lv.some((L) => L.type === "support" && px - L.price <= 1.1 * A && px - L.price >= -0.2 * A);
+      const nearRes = lv.some((L) => L.type === "resistance" && L.price - px <= 1.1 * A && L.price - px >= -0.2 * A);
+      const w = S.bb.bw, back = Math.min(19, i - 1), squeeze = ok(w[i]) && ok(w[back]) && w[i] < 0.72 * w[back];
+      const mUp = ok(S.macd.hist[i]) && ok(S.macd.hist[i - 1]) && S.macd.line[i] > S.macd.signal[i] && S.macd.hist[i] > S.macd.hist[i - 1] && S.macd.hist[i - 1] <= 0;
+      const mDn = ok(S.macd.hist[i]) && ok(S.macd.hist[i - 1]) && S.macd.line[i] < S.macd.signal[i] && S.macd.hist[i] < S.macd.hist[i - 1] && S.macd.hist[i - 1] >= 0;
+      if (dirSign !== -1 && ((pullback && bullRev) || (nearSup && bullRev))) return { signal: "long", reason: "پولبک به EMA20/حمایت + کندل بازگشتی صعودی — زودتر از تایید کامل روند" };
+      if (dirSign !== 1 && nearRes && bearRev) return { signal: "short", reason: "برخورد به مقاومت + کندل بازگشتی نزولی — زودتر از تایید کامل روند" };
+      if (dirSign !== -1 && squeeze && mUp) return { signal: "long", reason: "فشردگی بولینگر + کراس صعودی MACD — احتمال شروع حرکت روند به بالا" };
+      if (dirSign !== 1 && squeeze && mDn) return { signal: "short", reason: "فشردگی بولینگر + کراس نزولی MACD — احتمال شروع حرکت روند به پایین" };
+      return { signal: null };
+    }
+    let plan = null, signalType = "none", timing = "";
+    if (direction !== "none" && ok(A) && A > 0) {
+      plan = buildPlan(direction, price, A, lv, st, fib, S.ema20[i], !!opt.marketEntry);
+      signalType = "entry"; timing = "تایید شده — ورود در لحظه";
+    }
+    if (opt.early && !plan) {
+      const e = earlySignal();
+      if (e.signal) {
+        direction = e.signal;
+        plan = buildPlan(e.signal, price, A, lv, st, fib, S.ema20[i], !!opt.marketEntry);
+        if (plan) { signalType = "early"; timing = e.reason; }
+        else direction = "none";
+      }
+    }
 
     const warnings = [];
     if (S.adx.adx[i] < 18) warnings.push("ADX پایین است؛ بازار رنج/بی‌روند است و سیگنال‌های روندی قابل‌اعتماد نیستند.");
@@ -163,10 +196,12 @@
     if (plan && plan.rr[0] < 1.2) warnings.push("نسبت ریسک به ریوارد تارگت اول ضعیف است.");
 
     const threshold = opt.threshold || 70;
-    const tradeable = direction !== "none" && confluence >= threshold && !!plan && plan.rr[0] >= 1.2;
+    const tradeable = signalType === "early"
+      ? confluence >= Math.max(45, Math.round(threshold * 0.6)) && !!plan && plan.rr[0] >= 1.2
+      : direction !== "none" && confluence >= threshold && !!plan && plan.rr[0] >= 1.2;
 
     return {
-      price, atr: A, direction, confluence, tradeable, threshold, score: S_all,
+      price, atr: A, direction, confluence, tradeable, threshold, score: S_all, signalType, timing,
       tech, pa, fund, plan, warnings, items, paItems, buys, sells,
       pa_data: { sw, st, levels: lv, patterns: pats, fib, pivots: piv, sups, ress },
       series: S, count: n, lastTime: c[i].t,

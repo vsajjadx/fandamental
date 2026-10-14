@@ -8,6 +8,7 @@
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage blocked */ } };
   const fmt = (x, ref) => FA.signal.fmt(x, ref);
   const VD = { buy: "خرید", sell: "فروش", neutral: "خنثی" };
+  const sgn = (x) => (x > 0 ? 1 : x < 0 ? -1 : 0);
 
   const S = {
     sym: D.SYMBOLS.find((s) => s.id === load("fa_sym", "BTCUSDT")) || D.SYMBOLS[0],
@@ -17,6 +18,8 @@
     ov: load("fa_ov", { ema: true, bb: false, vwap: false, st: false, levels: true, plan: true }),
     journal: load("fa_journal", []), chat: [], img: null, busy: false, timer: null,
     dirty: { tv: true, overview: true, news: true }, centerTab: "analytic", rightTab: "signal", charts: null, calc: load("fa_calc", { bal: 1000, risk: 1 }),
+    alarms: load("fa_alarms", []), lastSig: load("fa_lastSig", null), notifyOn: load("fa_notify", false),
+    scan: null, scanning: false, newsCache: {}, autoFundBusy: false,
   };
 
   /* ---------------- helpers ---------------- */
@@ -32,14 +35,78 @@
     w.append(inner, sc); el.append(w);
   }
   const fmtTime = (t) => new Date(t * 1000).toLocaleString("fa-IR", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const fR = (x, d) => (ok(x) && isFinite(x) ? x.toFixed(d == null ? 2 : d) : "—");
+
+  window.addEventListener("error", (e) => { try { toast("خطای داخلی: " + e.message, "err"); } catch (x) { /* ignore */ } });
+
+  /* ---------------- alarms (in-app + browser notification + sound) ---------------- */
+  let audioCtx = null;
+  function beep(n) {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      for (let k = 0; k < (n || 2); k++) {
+        const o = audioCtx.createOscillator(), gn = audioCtx.createGain(), t0 = audioCtx.currentTime + k * 0.28;
+        o.type = "sine"; o.frequency.value = k % 2 ? 660 : 880;
+        gn.gain.setValueAtTime(0.0001, t0); gn.gain.exponentialRampToValueAtTime(0.25, t0 + 0.03); gn.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.25);
+        o.connect(gn); gn.connect(audioCtx.destination); o.start(t0); o.stop(t0 + 0.26);
+      }
+    } catch (e) { /* autoplay blocked until user interacts */ }
+  }
+  function toast(msg, kind) {
+    const wrap = $("#toasts"); if (!wrap) return alert(msg);
+    const d = document.createElement("div"); d.className = "toast " + (kind || "info"); d.innerHTML = msg;
+    d.onclick = () => d.remove(); wrap.append(d);
+    setTimeout(() => d.remove(), 10000);
+  }
+  function notify(title, body) {
+    toast(`<b>${esc(title)}</b><br>${body}`, "alarm");
+    if (S.notifyOn && "Notification" in window && Notification.permission === "granted") { try { new Notification(title, { body: String(body).replace(/<[^>]+>/g, "") }); } catch (e) { /* ignore */ } }
+    beep(2);
+  }
+  function pushAlarm(kind, text) {
+    S.alarms.unshift({ kind, text, t: Date.now() });
+    S.alarms = S.alarms.slice(0, 50); save("fa_alarms", S.alarms);
+    renderAlarms();
+  }
+  function renderAlarms() {
+    const el = $("#alarmList"); if (!el) return;
+    const ic = { sig: "🎯", early: "⚡", wrong: "🚫", news: "📰", info: "ℹ️" };
+    el.innerHTML = S.alarms.length ? S.alarms.map((a) => `<div class="alarm a-${esc(a.kind)}"><span>${ic[a.kind] || "•"}</span><div>${esc(a.text)}<small>${new Date(a.t).toLocaleString("fa-IR", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</small></div></div>`).join("")
+      : '<div class="empty">آلارمی ثبت نشده. با هر «تحلیل کن» یا خبر مهم، آلارم اینجا می‌آید.</div>';
+  }
+  function checkAlarms(r) {
+    if (!r || r.error) return;
+    const name = S.sym.name;
+    if (r.tradeable && r.signalType === "early") {
+      pushAlarm("early", `${name} · ${S.tf.label} — سیگنال زودهنگام ${r.direction === "long" ? "خرید" : "فروش"}: ${r.timing || ""} (ورود ${fmt(r.plan.entry, r.price)})`);
+      notify(`⚡ سیگنال زودهنگام ${name}`, `${r.direction === "long" ? "خرید" : "فروش"} · ${r.timing || ""}`);
+    } else if (r.tradeable && r.signalType === "entry") {
+      pushAlarm("sig", `${name} · ${S.tf.label} — سیگنال معتبر ${r.direction === "long" ? "خرید" : "فروش"} · هم‌سویی ${r.confluence} (ورود ${fmt(r.plan.entry, r.price)})`);
+      notify(`🎯 سیگنال ${name}`, `${r.direction === "long" ? "خرید" : "فروش"} · هم‌سویی ${r.confluence}`);
+    }
+    // wrong-signal detection: rapid direction churn + AI-disagreement
+    const now = Date.now();
+    if (S.lastSig && r.direction !== "none" && S.lastSig.dir !== r.direction && now - S.lastSig.t < 6 * 3600e3) {
+      const prev = S.lastSig.dir === "long" ? "خرید" : "فروش";
+      pushAlarm("wrong", `${name} — احتمال سیگنال اشتباه: ${prev === "خرید" ? "قبلاً خرید" : "قبلاً فروش"} صادر شده بود و جهت الان برعکس شده. صبر برای تثبیت.`);
+      notify(`🚫 هشدار سیگنال ${name}`, `چرخش جهت از ${prev} — ریسک سیگنال اشتباه`);
+    }
+    if (r.fund && r.direction !== "none" && ok(r.fund.score) && Math.sign(r.fund.score) !== 0 && sgn(r.fund.score) !== (r.direction === "long" ? 1 : -1) && r.fund.confidence >= 40) {
+      pushAlarm("wrong", `${name} — تحلیل AI: فاندامنتال (${r.fund.bias === "bullish" ? "صعودی" : r.fund.bias === "bearish" ? "نزولی" : "خنثی"}) مخالف سیگنال تکنیکال است؛ احتمال سیگنال اشتباه بالاست.`);
+      notify(`🚫 ${name} — تضاد AI و تکنیکال`, "جهت فاندامنتال مخالف سیگنال است");
+    }
+    if (r.tradeable) S.lastSig = { dir: r.direction, t: now, sym: S.sym.id }; save("fa_lastSig", S.lastSig);
+  }
 
   /* ---------------- boot ---------------- */
   function init() {
-    // symbol select + watchlist
     const groups = [...new Set(D.SYMBOLS.map((s) => s.group))];
-    $("#symbol").innerHTML = groups.map((g) => `<optgroup label="${esc(g)}">${D.SYMBOLS.filter((s) => s.group === g).map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</optgroup>`).join("");
+    const renderWatch = () => {
+      $("#watch").innerHTML = groups.map((g) => `<h5>${esc(g)}</h5>` + D.SYMBOLS.filter((s) => s.group === g).map((s) => `<button data-sym="${esc(s.id)}" class="${s.id === S.sym.id ? "on" : ""}">${esc(s.name)}<span>${esc(s.id)}</span></button>`).join("")).join("");
+    };
+    $("#symbol").innerHTML = groups.map((g) => `<optgroup label="${esc(g)}">${D.SYMBOLS.filter((s) => s.group === g).map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("")}</optgroup>`).join("");
     $("#symbol").value = S.sym.id;
-    $("#watch").innerHTML = groups.map((g) => `<h5>${esc(g)}</h5>` + D.SYMBOLS.filter((s) => s.group === g).map((s) => `<button data-sym="${s.id}" class="${s.id === S.sym.id ? "on" : ""}">${esc(s.name)}<span>${esc(s.id)}</span></button>`).join("")).join("");
+    renderWatch();
     $("#tfs").innerHTML = D.TIMEFRAMES.map((t) => `<button data-tf="${t.id}" class="${t.id === S.tf.id ? "on" : ""}">${t.label}</button>`).join("");
     $$("[data-ov]").forEach((c) => (c.checked = !!S.ov[c.dataset.ov]));
 
@@ -55,8 +122,9 @@
     $("#btnSettings").onclick = openSettings;
     $("#btnCsv").onclick = () => $("#csvFile").click();
     $("#csvFile").onchange = importCsv;
-    $("#btnFund").onclick = runFund;
+    $("#btnFund").onclick = () => runFund();
     $("#btnBt").onclick = runBt;
+    $("#btEarly").onchange = () => { /* takes effect on next run */ };
     $("#btnSend").onclick = () => { const t = $("#chatText").value.trim(); if (t || S.img) { $("#chatText").value = ""; send(t || "این چارت را تحلیل کن."); } };
     $("#chatText").onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("#btnSend").click(); };
     $("#btnAttach").onclick = () => $("#imgFile").click();
@@ -66,13 +134,27 @@
     $("#jFill").onclick = fillJournal;
     $("#jExport").onclick = exportJournal;
     $("#jList").onclick = (e) => { const b = e.target.closest("[data-del]"); if (b) { S.journal = S.journal.filter((x) => x.id !== +b.dataset.del); save("fa_journal", S.journal); renderJournal(); } };
+    $("#btnScan").onclick = scanMarkets;
+    $("#btnRankAI").onclick = rankWithAI;
+    $("#btnNotify").onclick = async () => {
+      if (!("Notification" in window)) { toast("مرورگر شما پشتیبانی نمی‌کند.", "err"); return; }
+      const p = await Notification.requestPermission();
+      S.notifyOn = p === "granted"; save("fa_notify", S.notifyOn);
+      $("#btnNotify").textContent = S.notifyOn ? "🔔 آلارم روشن" : "🔕 آلارم خاموش";
+      if (S.notifyOn) toast("آلارم مرورگر فعال شد.", "info");
+    };
+    $("#btnAlarmClear").onclick = () => { S.alarms = []; save("fa_alarms", S.alarms); renderAlarms(); };
+    $("#btnTseSearch").onclick = () => tseSearchFlow($("#tseQuery").value.trim());
+    $("#tseQuery").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); tseSearchFlow($("#tseQuery").value.trim()); } };
+    $("#btnNotify").textContent = S.notifyOn ? "🔔 آلارم روشن" : "🔕 آلارم خاموش";
 
     embed($("#tape"), "ticker-tape", {
       symbols: [["Gold", "OANDA:XAUUSD"], ["Silver", "OANDA:XAGUSD"], ["EURUSD", "OANDA:EURUSD"], ["GBPUSD", "OANDA:GBPUSD"], ["USDJPY", "OANDA:USDJPY"], ["DXY", "TVC:DXY"], ["BTC", "BINANCE:BTCUSDT"], ["ETH", "BINANCE:ETHUSDT"], ["S&P500", "FOREXCOM:SPXUSD"], ["Oil", "TVC:USOIL"]].map(([title, proName]) => ({ title, proName })),
       showSymbolLogo: true, colorTheme: "dark", isTransparent: true, displayMode: "adaptive", locale: "en",
     });
     new ResizeObserver(() => resizeCharts()).observe($("#chartMain").parentElement);
-    renderJournal(); updateFundHint();
+    renderJournal(); renderAlarms(); updateFundHint();
+    loadNews();
     run();
   }
 
@@ -81,6 +163,7 @@
     $("#symbol").value = S.sym.id; $$("#watch [data-sym]").forEach((b) => b.classList.toggle("on", b.dataset.sym === S.sym.id));
     S.fund = null; $("#fundBox").className = "empty"; $("#fundBox").textContent = "تحلیل خبری برای این نماد اجرا نشده."; S.dirty.tv = S.dirty.news = true;
     if (S.centerTab === "tv") renderTV(); if (S.rightTab === "fund") renderNews();
+    loadNews();
     run();
   }
   function setTf(id) {
@@ -101,20 +184,53 @@
     $$("#rightTabs button").forEach((b) => b.classList.toggle("on", b.dataset.rt === tab));
     $$(".rpane").forEach((p) => p.classList.toggle("on", p.id === "r-" + tab));
     if (tab === "fund" && S.dirty.news) renderNews();
+    if (tab === "best") { renderScan(); }
+  }
+
+  /* ---------------- TSETMC stock search (all Tehran symbols) ---------------- */
+  async function tseSearchFlow(q) {
+    if (!q) { toast("نام یا نماد سهام را بنویسید (مثلاً فولاد یا شپنا).", "info"); return; }
+    const btn = $("#btnTseSearch"); btn.disabled = true;
+    try {
+      const rows = await D.tseSearch(q);
+      if (!rows.length) { toast("نمادی پیدا نشد.", "err"); return; }
+      const r = rows[0];
+      const id = "TSE-" + (r.ticker || r.name);
+      if (!D.SYMBOLS.some((s) => s.id === id)) {
+        D.SYMBOLS.push({ id, name: r.name || r.ticker, group: "بورس تهران", tv: "", tse: r.insCode, td: "" });
+        const groups2 = [...new Set(D.SYMBOLS.map((s) => s.group))];
+        $("#symbol").innerHTML = groups2.map((gr) => `<optgroup label="${esc(gr)}">${D.SYMBOLS.filter((s) => s.group === gr).map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("")}</optgroup>`).join("");
+        renderWatch();
+      }
+      setSymbol(id);
+      toast(`نماد «${esc(r.name || r.ticker)}» اضافه و بارگذاری شد. (بورس تهران فقط از IP ایران در دسترس است)`, "info");
+    } catch (e) { toast(esc(e.message), "err"); }
+    finally { btn.disabled = false; }
   }
 
   /* ---------------- TradingView widgets ---------------- */
   function renderTV() {
     S.dirty.tv = false;
     embed($("#tvChart"), "advanced-chart", {
-      autosize: true, symbol: S.sym.tv, interval: S.tf.tv, timezone: "Etc/UTC", theme: "dark", style: "1", locale: "en",
+      autosize: true, symbol: S.sym.tv || (S.sym.tse ? (S.sym.id.replace("TSE-", "")) : "BINANCE:BTCUSDT"), interval: S.tf.tv, timezone: "Etc/UTC", theme: "dark", style: "1", locale: "en",
       enable_publishing: false, allow_symbol_change: true, withdateranges: true, save_image: true, studies: ["RSI@tv-basicstudies", "MACD@tv-basicstudies"],
       support_host: "https://www.tradingview.com",
     });
+    renderTvPlan();
+  }
+  function renderTvPlan() {
+    const el = $("#tvPlan"), r = S.res;
+    if (!el) return;
+    if (S.sym.tse && !S.sym.tv) { el.innerHTML = '<span class="hint">TradingView بورس تهران را پوشش نمی‌دهد؛ سطوح ورود/تارگت روی «چارت تحلیلی» رسم شده‌اند.</span>'; return; }
+    if (!r || r.error || !r.plan) { el.innerHTML = ""; return; }
+    const p = r.plan, f = (x) => fmt(x, r.price);
+    el.innerHTML = `<span class="lv side">${p.side === "long" ? "خرید" : "فروش"}</span><span class="lv en">ورود ${f(p.entry)}</span><span class="lv sl">حد ضرر ${f(p.sl)}</span>` +
+      p.tps.map((t, i) => `<span class="lv tp">تارگت ${i + 1}: ${f(t)} (${fR(p.rr[i])}R)</span>`).join("") +
+      '<span class="hint">این سطوح روی «چارت تحلیلی» با خطوط رنگی رسم شده‌اند.</span>';
   }
   function renderOverview() {
     S.dirty.overview = false;
-    const pick = (g) => D.SYMBOLS.filter((s) => s.group === g).map((s) => ({ s: s.tv, d: s.name.replace(/[^\x00-\x7F]+/g, "").trim() || s.id }));
+    const pick = (g) => D.SYMBOLS.filter((s) => s.group === g && s.tv).map((s) => ({ s: s.tv, d: s.name.replace(/[^\x00-\x7F]+/g, "").trim() || s.id }));
     embed($("#tvOverview"), "market-overview", {
       colorTheme: "dark", dateRange: "1D", showChart: true, locale: "en", isTransparent: true, showSymbolLogo: true, showFloatingTooltip: false, width: "100%", height: "100%",
       tabs: [{ title: "Forex", symbols: pick("فارکس") }, { title: "Metals", symbols: pick("فلزات و کالا") }, { title: "Crypto", symbols: pick("کریپتو") }, { title: "Indices", symbols: pick("شاخص‌ها") }],
@@ -122,7 +238,7 @@
   }
   function renderNews() {
     S.dirty.news = false;
-    embed($("#tvNews"), "timeline", { feedMode: "symbol", symbol: S.sym.tv, colorTheme: "dark", isTransparent: true, displayMode: "regular", width: "100%", height: 420, locale: "en" });
+    if (S.sym.tv) embed($("#tvNews"), "timeline", { feedMode: "symbol", symbol: S.sym.tv, colorTheme: "dark", isTransparent: true, displayMode: "regular", width: "100%", height: 420, locale: "en" });
     embed($("#tvCal"), "events", { colorTheme: "dark", isTransparent: true, width: "100%", height: 420, locale: "en", importanceFilter: "-1,0,1", currencyFilter: "USD,EUR,GBP,JPY,CHF,AUD,CAD,NZD,CNY" });
   }
 
@@ -141,12 +257,14 @@
       reanalyze();
       const last = S.candles[S.candles.length - 1];
       status(`<b>${esc(S.sym.name)}</b> · ${S.tf.label} · منبع: ${esc(S.source)} · ${S.candles.length} کندل · آخرین کندل: ${fmtTime(last.t)}${S.note ? " · " + esc(S.note) : ""}`);
+      checkAlarms(S.res);
+      autoFund();
     } catch (e) { status("خطا: " + esc(e.message), true); }
     finally { S.busy = false; $("#btnRun").disabled = false; }
   }
   function reanalyze() {
-    S.res = FA.signal.analyze(S.candles, { fund: S.fund, threshold: S.thr });
-    renderChart(); renderSignal(); renderInd();
+    S.res = FA.signal.analyze(S.candles, { fund: S.fund, threshold: S.thr, early: true });
+    renderChart(); renderSignal(); renderInd(); renderTvPlan();
   }
 
   /* ---------------- chart ---------------- */
@@ -188,9 +306,10 @@
     if (S.ov.plan && r.plan) {
       const p = r.plan;
       pl(p.entry, "#4aa3ff", p.isLimit ? "ENTRY (limit)" : "ENTRY", 0); pl(p.sl, "#f6465d", "SL", 0);
-      p.tps.forEach((t, i) => pl(t, "#2ebd85", `TP${i + 1} (${p.rr[i].toFixed(1)}R)`, 0));
+      p.tps.forEach((t, i) => pl(t, "#2ebd85", `TP${i + 1} (${fR(p.rr[i], 1)}R)`, 0));
     }
-    const mk = r.pa_data.patterns.filter((p) => p.dir !== 0 && p.i >= S.candles.length - 3).map((p) => ({ time: T[p.i], position: p.dir === 1 ? "belowBar" : "aboveBar", color: p.dir === 1 ? "#2ebd85" : "#f6465d", shape: p.dir === 1 ? "arrowUp" : "arrowDown", text: p.name }));
+    const seenT = new Set();
+    const mk = r.pa_data.patterns.filter((p) => p.dir !== 0 && p.i >= S.candles.length - 3 && !seenT.has(T[p.i]) && seenT.add(T[p.i])).map((p) => ({ time: T[p.i], position: p.dir === 1 ? "belowBar" : "aboveBar", color: p.dir === 1 ? "#2ebd85" : "#f6465d", shape: p.dir === 1 ? "arrowUp" : "arrowDown", text: p.name }));
     mk.sort((a, b) => a.time - b.time); if (mk.length) cs.setMarkers(mk);
 
     const rl = line(rsi, sr.rsi, "#b388ff", 2);
@@ -213,19 +332,21 @@
     box.className = "";
     const dirTxt = { long: "خرید (Long)", short: "فروش (Short)", none: "بدون جهت مشخص" }[r.direction];
     const col = r.direction === "long" ? "#2ebd85" : r.direction === "short" ? "#f6465d" : "#8b95a7", C = 2 * Math.PI * 40;
-    const badge = r.tradeable ? `<span class="badge ok">سیگنال معتبر (هم‌سویی ≥ ${r.threshold})</span>` : r.direction === "none" ? `<span class="badge wait">فعلاً وارد نشو</span>` : `<span class="badge wait">هم‌سویی کافی نیست؛ صبر کن</span>`;
+    const timingBadge = r.signalType === "early"
+      ? `<span class="badge early">⚡ سیگنال زودهنگام — قبل از تکمیل حرکت روند</span>`
+      : r.tradeable ? `<span class="badge ok">سیگنال معتبر (هم‌سویی ≥ ${r.threshold})</span>` : r.direction === "none" ? `<span class="badge wait">فعلاً وارد نشو</span>` : `<span class="badge wait">هم‌سویی کافی نیست؛ صبر کن</span>`;
     const all = r.items.concat(r.paItems), ds = r.direction === "short" ? -1 : 1, rank = (a, b) => b.w * Math.abs(b.score) - a.w * Math.abs(a.score);
     const sup = r.direction === "none" ? [] : all.filter((x) => Math.sign(x.score) === ds && Math.abs(x.score) >= 0.25).sort(rank).slice(0, 6);
     const opp = r.direction === "none" ? [] : all.filter((x) => Math.sign(x.score) === -ds && Math.abs(x.score) >= 0.25).sort(rank).slice(0, 3);
     const li = (x) => `<li><b>${esc(x.name)}</b>: ${esc(x.value)} → ${VD[x.verdict]}</li>`;
     let plan = "";
     if (r.plan) {
-      const p = r.plan, f = (x) => fmt(x, r.price), side = p.side === "long";
+      const p = r.plan, f = (x) => fmt(x, r.price);
       plan = `<table class="plan">
         <tr><td>ورود ${p.isLimit ? "(سفارش لیمیت روی پولبک)" : "(قیمت بازار)"}</td><td class="ac">${f(p.entry)}</td></tr>
         <tr><td>ناحیه‌ی ورود</td><td>${f(p.entryZone[0])} – ${f(p.entryZone[1])}</td></tr>
         <tr><td>حد ضرر</td><td class="dn">${f(p.sl)}</td></tr>
-        ${p.tps.map((t, i) => `<tr><td>تارگت ${i + 1}<span class="tag">${p.rr[i].toFixed(2)}R</span></td><td class="up">${f(t)}</td></tr>`).join("")}
+        ${p.tps.map((t, i) => `<tr><td>تارگت ${i + 1}<span class="tag">${fR(p.rr[i])}R</span></td><td class="up">${f(t)}</td></tr>`).join("")}
         <tr><td>ریسک هر واحد (≈ATR)</td><td>${f(p.risk)}</td></tr></table>
         <div class="calc">محاسبه‌ی حجم:
           <div class="row"><input id="cBal" type="number" value="${S.calc.bal}" min="0"> موجودی &nbsp; <input id="cRisk" type="number" value="${S.calc.risk}" step="0.25" min="0.1"> % ریسک</div>
@@ -234,11 +355,12 @@
     box.innerHTML = `
       <div class="sig-head">
         <div class="ring"><svg width="92" height="92" viewBox="0 0 92 92"><circle cx="46" cy="46" r="40" fill="none" stroke="#222a3b" stroke-width="8"/><circle cx="46" cy="46" r="40" fill="none" stroke="${col}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - r.confluence / 100)}"/></svg><b style="color:${col}">${r.confluence}</b></div>
-        <div><span class="pill ${r.direction}">${dirTxt}</span><br>${badge}
+        <div><span class="pill ${r.direction}">${dirTxt}</span><br>${timingBadge}
           <div class="hint">امتیاز هم‌سویی سیگنال‌ها (نه احتمال سود) · ${r.buys} خرید / ${r.sells} فروش از ${all.length} مورد</div></div>
       </div>
+      ${r.signalType === "early" && r.timing ? `<div class="note-early">⚡ ${esc(r.timing)}</div>` : ""}
       ${plan}
-      ${r.fund ? `<div class="hint" style="margin-top:8px">فاندامنتال AI: <b>${esc(r.fund.bias)}</b> (اطمینان ${Math.round(r.fund.confidence)}%)</div>` : ""}
+      ${r.fund ? `<div class="hint" style="margin-top:8px">فاندامنتال AI: <b>${esc({ bullish: "صعودی", bearish: "نزولی", neutral: "خنثی" }[r.fund.bias] || r.fund.bias)}</b> (اطمینان ${Math.round(r.fund.confidence)}%)</div>` : ""}
       ${sup.length ? `<h4>دلایل هم‌جهت</h4><ul class="reasons">${sup.map(li).join("")}</ul>` : ""}
       ${opp.length ? `<h4>نشانه‌های مخالف</h4><ul class="reasons">${opp.map(li).join("")}</ul>` : ""}
       ${r.warnings.length ? `<ul class="warns">${r.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}`;
@@ -275,23 +397,35 @@
       </div>`;
   }
 
-  /* ---------------- AI: fundamentals ---------------- */
+  /* ---------------- AI: fundamentals (auto-runs after every analysis) ---------------- */
   function requireKey() {
     if (!S.keys[S.keys.provider || "gemini"]) { openSettings(); return false; } return true;
   }
   function updateFundHint() {
     const p = FA.ai.PROVIDERS[S.keys.provider || "gemini"];
-    $("#fundHint").textContent = p.search ? "جستجوی زنده‌ی وب با کلید شما" : "تیترهای زنده از GDELT/CryptoCompare + تحلیل مدل " + p.label;
+    $("#fundHint").textContent = p.search ? "جستجوی زنده‌ی وب با کلید شما" : "تیترهای زنده از GDELT + تحلیل مدل " + p.label;
   }
-  async function runFund() {
-    if (!requireKey() || !S.res || S.res.error) return;
-    const btn = $("#btnFund"), box = $("#fundBox"); btn.disabled = true; box.className = "empty"; box.textContent = "در حال جستجوی اخبار و تحلیل… (۲۰ تا ۶۰ ثانیه)";
+  async function runFund(auto) {
+    if (S.autoFundBusy) return;
+    if (!requireKey()) return;
+    if (!S.res || S.res.error) return;
+    const btn = $("#btnFund"), box = $("#fundBox"); btn.disabled = true; S.autoFundBusy = true;
+    box.className = "empty"; box.textContent = auto ? "تحلیل فاندامنتال به‌صورت خودکار اجرا می‌شود…" : "در حال جستجوی اخبار و تحلیل…";
+    const prog = (m) => { box.className = "empty"; box.textContent = m + " — لطفاً صبر کنید (تا ۲ دقیقه)."; };
     try {
       const r = S.res, tech = `${r.direction}, confluence ${r.confluence}, tech ${r.tech.toFixed(2)}, price action ${r.pa.toFixed(2)}`;
-      const f = await FA.ai.fundamental(S.keys, { name: S.sym.name, tv: S.sym.tv, tf: S.tf.label, price: fmt(r.price, r.price), tech, sym: S.sym, today: new Date().toISOString().slice(0, 10) });
-      S.fund = f; renderFund(); reanalyze();
-    } catch (e) { box.className = "empty"; box.innerHTML = `<span class="loss">${esc(e.message)}</span>`; }
-    finally { btn.disabled = false; }
+      const f = await FA.ai.fundamental(S.keys, { name: S.sym.name, tv: S.sym.tv, tf: S.tf.label, price: fmt(r.price, r.price), tech, sym: S.sym, today: new Date().toISOString().slice(0, 10) }, prog);
+      S.fund = f; renderFund(); reanalyze(); checkAlarms(S.res);
+      // خبرهای آینده‌ی مهم -> آلارم
+      (f.future_events || []).concat(f.upcoming_events || []).slice(0, 3).forEach((e) => {
+        if (e.importance === "high") pushAlarm("news", `${S.sym.name} — رویداد پیش‌رو: ${e.event} (${e.when || "زمان نامشخص"}) — ${e.effect || e.risk || ""}`);
+      });
+    } catch (e) { if (!auto) { box.className = "empty"; box.innerHTML = `<span class="loss">${esc(e.message)}</span>`; } }
+    finally { btn.disabled = false; S.autoFundBusy = false; }
+  }
+  function autoFund() {
+    if (S.fund || S.autoFundBusy) return;
+    if (S.keys[S.keys.provider || "gemini"]) runFund(true);
   }
   function renderFund() {
     const f = S.fund, box = $("#fundBox"); if (!f) return; box.className = "";
@@ -301,9 +435,40 @@
       <div class="hint">منبع: ${esc(f.sourceNote || "")}</div>
       <p>${esc(f.summary)}</p>
       ${(f.drivers || []).map((d) => `<div class="fcard imp-${esc(d.impact)}"><b>${dir(d.direction)} ${esc(d.headline)}</b>${esc(d.why)}<br><small>${esc(d.source)}</small></div>`).join("")}
+      ${(f.future_events || []).length ? "<h4>خبرها و رویدادهایی که در آینده روی این دارایی اثر می‌گذارند</h4>" : ""}
+      ${(f.future_events || []).map((e) => `<div class="fcard imp-${esc(e.importance)}"><b>📌 ${esc(e.event)}</b><small>${esc(e.when || "")}</small><br>${esc(e.effect || "")}</div>`).join("")}
       ${(f.upcoming_events || []).length ? "<h4>رویدادهای پیش‌رو</h4>" : ""}
       ${(f.upcoming_events || []).map((e) => `<div class="fcard imp-${esc(e.importance)}"><b>${esc(e.event)}</b><small>${esc(e.when)}</small><br>${esc(e.risk)}</div>`).join("")}
       ${(f.risks || []).length ? `<h4>ریسک‌ها</h4><ul class="warns">${f.risks.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}`;
+  }
+
+  /* ---------------- free news layer (no AI key needed) ---------------- */
+  async function loadNews() {
+    const listEl = $("#newsList"), calEl = $("#calList");
+    try {
+      const [cal, heads] = await Promise.allSettled([FA.news.economicCalendar(), FA.news.assetNews(S.sym)]);
+      // calendar filtered for this symbol's currencies
+      if (calEl) {
+        if (cal.status === "fulfilled") {
+          const rel = FA.news.matchCalendar(cal.value, S.sym);
+          const upcoming = rel.filter((e) => e.ts > Date.now() / 1000 - 3600).sort((a, b) => a.ts - b.ts).slice(0, 12);
+          calEl.className = "";
+          calEl.innerHTML = upcoming.length ? upcoming.map((e) => `<div class="fcard imp-${e.impact}"><b>${esc(e.country)}: ${esc(e.title)}</b><small>📅 ${esc(e.date)}</small>${e.forecast ? `<br><small>پیش‌بینی: ${esc(e.forecast)} · قبلی: ${esc(e.previous)}</small>` : ""}</div>`).join("") : '<div class="hint">رویداد پراثری برای ارزهای این نماد در روزهای آینده نیست.</div>';
+          upcoming.filter((e) => e.impact === "high" && e.ts > Date.now() / 1000 && e.ts < Date.now() / 1000 + 48 * 3600).forEach((e) => {
+            const k = "cal-" + e.country + e.title + e.ts;
+            if (!S.newsCache[k]) { S.newsCache[k] = 1; pushAlarm("news", `${S.sym.name} — رویداد پراثر پیش‌رو: ${e.country} ${e.title} (${e.date})`); }
+          });
+        } else { calEl.className = "empty"; calEl.textContent = "تقویم اقتصادی در دسترس نیست (فیلترینگ/قطع دسترسی)."; }
+      }
+      if (listEl) {
+        if (heads.status === "fulfilled" && heads.value.length) {
+          listEl.className = "";
+          listEl.innerHTML = heads.value.slice(0, 15).map((h) => `<div class="fcard"><b>${esc(h.title)}</b><small>${esc(h.src)}${h.ts ? " · " + new Date(h.ts * 1000).toLocaleDateString("fa-IR") : ""}</small></div>`).join("");
+        } else if (heads.status === "fulfilled") { listEl.className = "empty"; listEl.textContent = "خبر تازه‌ای برای این نماد پیدا نشد."; }
+        else { listEl.className = "empty"; listEl.textContent = "دریافت اخبار ممکن نشد (GDELT گاهی محدود می‌شود؛ بعداً دوباره امتحان کنید)."; }
+      }
+      if (S.rightTab === "fund") renderNews();
+    } catch (e) { /* silent */ }
   }
 
   /* ---------------- AI: chat ---------------- */
@@ -312,7 +477,7 @@
     const out = { symbol: S.sym.name, timeframe: S.tf.label, journal: journalStats() };
     if (r && !r.error && r.plan !== undefined) {
       Object.assign(out, {
-        price: round(r.price), direction: r.direction, confluence: r.confluence, tradeable: r.tradeable, techScore: round(r.tech), priceActionScore: round(r.pa), warnings: r.warnings,
+        price: round(r.price), direction: r.direction, signalType: r.signalType, timing: r.timing, confluence: r.confluence, tradeable: r.tradeable, techScore: round(r.tech), priceActionScore: round(r.pa), warnings: r.warnings,
         plan: r.plan && { side: r.plan.side, entry: round(r.plan.entry), sl: round(r.plan.sl), tps: r.plan.tps.map(round), rr: r.plan.rr.map((x) => +x.toFixed(2)) },
         structure: r.pa_data.st.trend, fundamental: r.fund && { bias: r.fund.bias, confidence: r.fund.confidence, summary: r.fund.summary },
         indicators: r.items.concat(r.paItems).map((x) => `${x.name}: ${x.value} (${x.verdict})`),
@@ -328,9 +493,8 @@
     const content = img ? [{ type: "image", source: { type: "base64", media_type: img.type, data: img.data } }, { type: "text", text }] : text;
     S.chat.push({ role: "user", content });
     addMsg("user", (img ? `<img src="data:${img.type};base64,${img.data}" alt="">` : "") + md(text));
-    const pending = addMsg("ai", "…"); $("#btnSend").disabled = true;
+    const pending = addMsg("ai", "<span class='hint'>در حال پاسخ… (اگر مدل شلوغ باشد خودکار دوباره تلاش می‌شود)</span>"); $("#btnSend").disabled = true;
     try {
-      // only the latest image is re-sent; older ones are reduced to text to keep requests small
       let h = S.chat.slice(-14).map((m, i, a) => (i < a.length - 1 && Array.isArray(m.content) ? { role: m.role, content: m.content.filter((b) => b.type === "text") } : m));
       while (h.length && h[0].role !== "user") h.shift();
       const reply = await FA.ai.chat(S.keys, h, FA.ai.chatSystem(ctx()));
@@ -346,22 +510,103 @@
     rd.readAsDataURL(f);
   }
 
-  /* ---------------- backtest ---------------- */
+  /* ---------------- market screener (راهنمای بهترین فرصت‌ها) ---------------- */
+  async function scanMarkets() {
+    if (S.scanning) return;
+    S.scanning = true; $("#btnScan").disabled = true; $("#scanProg").textContent = "شروع اسکن…";
+    const rows = [];
+    const list = D.SYMBOLS.filter((s) => s.group !== "بورس تهران"); // TSETMC only answers from Iranian IPs; scanned separately
+    for (let k = 0; k < list.length; k++) {
+      const sym = list[k];
+      $("#scanProg").textContent = `اسکن ${k + 1}/${list.length}: ${sym.name}`;
+      try {
+        const r = await D.fetchCandles(sym, S.tf, S.keys, 400);
+        const c = dedupe(r.candles);
+        const a = FA.signal.analyze(c, { early: true, marketEntry: true, threshold: 0 });
+        if (a.error) throw new Error(a.error);
+        const atrPct = ok(a.atr) ? (100 * a.atr) / a.price : null;
+        rows.push({
+          sym, name: sym.name, price: a.price, direction: a.direction, conf: a.confluence,
+          rr: a.plan ? a.plan.rr[0] : null, atrPct, tech: a.tech, pa: a.pa, fund: a.fund,
+          alert: a.signalType === "early" ? a.timing : "", score: a.score,
+        });
+      } catch (e) { rows.push({ sym, name: sym.name, error: e.message }); }
+    }
+    rows.sort((x, y) => (y.score || -9) - (x.score || -9));
+    S.scan = rows; S.scanning = false; $("#btnScan").disabled = false; $("#scanProg").textContent = "";
+    save("fa_scan", { t: Date.now(), rows: rows.map((r) => ({ id: r.sym.id, direction: r.direction, conf: r.conf, rr: r.rr, atrPct: r.atrPct, score: r.score, tech: r.tech, pa: r.pa, alert: r.alert, error: r.error })) });
+    renderScan();
+    const good = rows.filter((r) => r.score != null && Math.abs(r.score) >= 0.25).length;
+    pushAlarm("info", `اسکن بازار انجام شد: ${good} نماد با سیگنال مشخص از ${rows.length}. تب «بهترین‌ها» را ببینید.`);
+    if (S.rightTab === "best") toast("اسکن کامل شد.", "info");
+  }
+  const riskOf = (atrPct) => (atrPct == null ? "—" : atrPct < 0.6 ? "کم" : atrPct < 2 ? "متوسط" : "زیاد");
+  function renderScan() {
+    const box = $("#scanBox");
+    if (!S.scan) {
+      let cached = load("fa_scan", null);
+      if (cached && Date.now() - cached.t < 6 * 3600e3) {
+        box.className = ""; box.innerHTML = `<div class="hint">آخرین اسکن: ${new Date(cached.t).toLocaleString("fa-IR", { hour12: false })} — برای اسکن تازه دکمه را بزنید.</div>` + scanTable(cached.rows.map((r) => ({ name: r.id, direction: r.direction, conf: r.conf, rr: r.rr, atrPct: r.atrPct, alert: r.alert, error: r.error, score: r.score })), null);
+      } else { box.className = "empty"; box.textContent = "برای یافتن بهترین فرصت‌ها، دکمه‌ی «اسکن همه‌ی بازارها» را بزنید."; }
+      return;
+    }
+    box.className = "";
+    box.innerHTML = scanTable(S.scan, S.ranked);
+  }
+  function scanTable(rows, ranked) {
+    const dirTxt = { long: "خرید", short: "فروش", none: "—" };
+    if (ranked && ranked.ranked) {
+      return `<div class="hint">رتبه‌بندی AI (بهترین‌ها اول — سود بیشتر، ریسک کمتر):</div>` +
+        ranked.ranked.filter((x) => x.side !== "none").map((x) => `<div class="fcard imp-${x.risk_level === "low" ? "low" : x.risk_level === "medium" ? "medium" : "high"}"><b>#${x.rank} ${esc(x.name || x.symbol)} — ${x.side === "long" ? "خرید" : "فروش"} · ${esc({ excellent: "عالی", good: "خوب", weak: "ضعیف" }[x.entry_quality] || x.entry_quality || "")} · ریسک: ${esc({ low: "کم", medium: "متوسط", high: "زیاد" }[x.risk_level] || x.risk_level || "")}</b>${esc(x.potential || "")}${x.risk_note ? `<br><small>ریسک: ${esc(x.risk_note)}</small>` : ""}</div>`).join("") +
+        (ranked.summary ? `<p class="hint">${esc(ranked.summary)}</p>` : "") + `<h4>کل نتایج اسکن</h4>` + rawTable(rows);
+    }
+    return rawTable(rows);
+  }
+  function rawTable(rows) {
+    const dirTxt = { long: "خرید", short: "فروش", none: "—" };
+    return `<table class="btable"><thead><tr><th>نماد</th><th>جهت</th><th>هم‌سویی</th><th>R/R تارگت۱</th><th>نوسان (ATR%)</th><th>ریسک</th><th>امتیاز</th></tr></thead><tbody>
+      ${rows.map((r) => r.error ? `<tr><td>${esc(r.name)}</td><td colspan="6" class="hint">${esc(r.error)}</td></tr>`
+        : `<tr><td>${esc(r.name)}${r.alert ? " ⚡" : ""}</td><td class="${r.direction === "long" ? "win" : r.direction === "short" ? "loss" : ""}">${dirTxt[r.direction] || "—"}</td><td>${r.conf != null ? r.conf : "—"}</td><td>${fR(r.rr)}</td><td>${fR(r.atrPct, 2)}</td><td>${riskOf(r.atrPct)}</td><td>${r.score != null ? r.score.toFixed(2) : "—"}</td></tr>`).join("")}
+      </tbody></table>
+      ${rows.some((r) => r.alert) ? '<div class="hint">⚡ = سیگنال زودهنگام (قبل از تکمیل حرکت)</div>' : ""}`;
+  }
+  async function rankWithAI() {
+    if (!requireKey()) return;
+    if (!S.scan || !S.scan.length) { toast("اول «اسکن همه‌ی بازارها» را اجرا کنید.", "info"); return; }
+    const btn = $("#btnRankAI"); btn.disabled = true;
+    const box = $("#scanBox");
+    try {
+      box.className = "empty"; box.textContent = "AI در حال رتبه‌بندی… (اگر مدل شلوغ باشد خودکار تلاش مجدد می‌شود)";
+      const markets = S.scan.filter((r) => !r.error).map((r) => ({ id: r.sym.id, name: r.name, price: r.price, direction: r.direction, confluence: r.conf, tech: r.tech, pa: r.pa, fund: r.fund, alert: r.alert }));
+      S.ranked = await FA.ai.screener(S.keys, { markets }, (m) => { box.textContent = m; });
+      renderScan();
+    } catch (e) { box.className = "empty"; box.innerHTML = `<span class="loss">${esc(e.message)}</span>`; }
+    finally { btn.disabled = false; }
+  }
+
+  /* ---------------- backtest (profit/loss based) ---------------- */
   async function runBt() {
     const box = $("#btBox"), btn = $("#btnBt");
     if (S.candles.length < 300) { box.className = "empty"; box.textContent = "حداقل ۳۰۰ کندل لازم است."; return; }
+    const early = $("#btEarly").checked;
     btn.disabled = true; box.className = "empty"; box.textContent = "در حال اجرا…";
     try {
-      const res = await FA.backtest.run(S.candles, { window: 300, horizon: 48, onProgress: (p) => ($("#btProg").textContent = Math.round(p * 100) + "%") });
+      const res = await FA.backtest.run(S.candles, { window: 300, horizon: 48, early, onProgress: (p) => ($("#btProg").textContent = Math.round(p * 100) + "%") });
       $("#btProg").textContent = ""; box.className = "";
       const pct = (x) => (x == null ? "—" : x.toFixed(1) + "%"), num = (x) => (x == null ? "—" : x.toFixed(2));
-      box.innerHTML = `<div class="hint">${esc(S.sym.name)} · ${S.tf.label} · ${res.bars} کندل · ورود در قیمت بازار، تارگت اول در برابر حد ضرر، حداکثر ۴۸ کندل</div>
-        <table class="btable"><thead><tr><th>هم‌سویی ≥</th><th>تعداد</th><th>نرخ برد</th><th>سر‌به‌سر</th><th>میانگین R</th><th>جمع R</th><th>منقضی</th></tr></thead><tbody>
-        ${res.summary.map((b) => `<tr class="${b.threshold === S.thr ? "hl" : ""}"><td>${b.threshold}</td><td>${b.count}</td><td class="${b.winRate != null && b.breakeven != null && b.winRate > b.breakeven ? "win" : "loss"}">${pct(b.winRate)}</td><td>${pct(b.breakeven)}</td><td>${num(b.avgR)}</td><td>${num(b.totalR)}</td><td>${b.expired}</td></tr>`).join("")}</tbody></table>
+      const b0 = res.summary[0];
+      const verdict = b0 && b0.totalR != null
+        ? (b0.totalR > 0 ? `<div class="note-early" style="border-color:var(--up);color:#bdebd8">نتیجه‌ی نهایی روی این نماد/تایم‌فریم: <b>سودده</b> (جمع ${b0.totalR.toFixed(2)}R از ${b0.count} معامله، شامل ضررها)</div>`
+          : `<div class="note-early" style="border-color:var(--dn);color:#f3c2ca">نتیجه‌ی نهایی روی این نماد/تایم‌فریم: <b>زیان‌ده</b> (جمع ${b0.totalR.toFixed(2)}R از ${b0.count} معامله)</div>`)
+        : "";
+      box.innerHTML = `${verdict}<div class="hint">${esc(S.sym.name)} · ${S.tf.label} · ${res.bars} کندل · ورود در قیمت بازار، تارگت اول در برابر حد ضرر، حداکثر ۴۸ کندل${early ? " · با سیگنال زودهنگام" : ""}</div>
+        <table class="btable"><thead><tr><th>هم‌سویی ≥</th><th>تعداد</th><th>سود (R)</th><th>ضرر (R)</th><th>نرخ برد</th><th>سر‌به‌سر</th><th>میانگین R</th><th>جمع R (سود−ضرر)</th><th>فاکتور سود</th><th>بیشترین افت</th></tr></thead><tbody>
+        ${res.summary.map((b) => `<tr class="${b.threshold === S.thr ? "hl" : ""}"><td>${b.threshold}</td><td>${b.count}</td><td class="win">${num(b.grossWin)}</td><td class="loss">${num(b.grossLoss)}</td><td>${pct(b.winRate)}</td><td>${pct(b.breakeven)}</td><td>${num(b.avgR)}</td><td class="${b.totalR > 0 ? "win" : b.totalR < 0 ? "loss" : ""}">${num(b.totalR)}</td><td>${b.profitFactor == null ? "—" : b.profitFactor === Infinity ? "∞" : b.profitFactor.toFixed(2)}</td><td>${num(b.maxDD)}</td></tr>`).join("")}</tbody></table>
         <ul class="warns" style="margin-top:12px">
-          <li>«نرخ برد» باید از «سر‌به‌سر» بالاتر باشد تا سیستم روی این نماد سودده باشد.</li>
+          <li>ستون «جمع R» = سود منهای ضررِ همه‌ی معاملات؛ مثبت یعنی سیستم روی این نماد سودده بوده است (بدون در نظر گرفتن جهت سیگنال خرید/فروش).</li>
+          <li>«فاکتور سود» بالای ۱٫۳ و «بیشترین افت» کوچک، یعنی ریسک سیستم قابل‌تحمل است.</li>
           <li>اگر تعداد معاملات کمتر از ۳۰ است، نتیجه از نظر آماری قابل اتکا نیست.</li>
-          <li>این بک‌تست فقط تکنیکال و پرایس‌اکشن را می‌سنجد (فاندامنتال در گذشته قابل بازسازی نیست)؛ کارمزد و اسلیپیج لحاظ نشده است.</li></ul>`;
+          <li>این بک‌تست walk-forward است (موتور در هر لحظه فقط کندل‌های گذشته را می‌بیند)؛ کارمزد و اسلیپیج لحاظ نشده است.</li></ul>`;
     } catch (e) { box.className = "empty"; box.textContent = e.message; }
     finally { btn.disabled = false; }
   }
@@ -411,7 +656,7 @@
     curProv = p; const m = FA.ai.PROVIDERS[p];
     $("#kProv").value = p; $("#kKey").value = tmp[p] || ""; $("#kModel").value = (tmp.models && tmp.models[p]) || m.model;
     $("#kKeyHelp").innerHTML = `<a href="${m.keyUrl}" target="_blank" rel="noopener" style="color:var(--acc)">گرفتن کلید</a>`;
-    $("#kProvNote").textContent = m.search ? "این سرویس جستجوی زنده‌ی وب دارد؛ تحلیل خبری دقیق‌تر است ولی پولی است." : "رایگان است (با محدودیت تعداد درخواست). جستجوی وب ندارد؛ تیترهای خبری را اپ از GDELT/CryptoCompare می‌گیرد و به مدل می‌دهد، پس عمق تحلیل خبری کمتر از حالت پولی است.";
+    $("#kProvNote").textContent = m.note || "";
   }
   function stashProv() { tmp[curProv] = $("#kKey").value.trim(); tmp.models = Object.assign({}, tmp.models, { [curProv]: $("#kModel").value.trim() }); }
   function openSettings() {
