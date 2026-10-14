@@ -9,11 +9,14 @@
   const FA = (g.FA = g.FA || {});
 
   const PROVIDERS = {
-    gemini: { label: "Google Gemini (رایگان)", model: "gemini-2.5-flash", fallback: "gemini-2.0-flash", keyUrl: "https://aistudio.google.com/apikey", search: false, note: "برای گرفتن کلید رایگان وارد aistudio.google.com شوید. مدل‌های ۲.۵/۳ در ساعات شلوغ خطای «high demand» می‌دهند؛ این اپ به‌صورت خودکار دوباره تلاش می‌کند و در صورت لزوم مدل جایگزین را صدا می‌زند." },
-    openrouter: { label: "OpenRouter (مدل‌های رایگان)", model: "meta-llama/llama-3.3-70b-instruct:free", fallback: "google/gemini-2.0-flash-exp:free", keyUrl: "https://openrouter.ai/keys", search: false, note: "کلید رایگان از openrouter.ai/keys. اگر مدل انتخابی پر بود، اپ خودکار به مدل جایگزین می‌رود." },
+    gemini: { label: "Google Gemini (رایگان)", model: "gemini-3.8-flash", fallback: "gemini-3.6-flash", keyUrl: "https://aistudio.google.com/apikey", search: false, note: "برای گرفتن کلید رایگان وارد aistudio.google.com شوید. مدل‌های ۲.۵/۳ در ساعات شلوغ خطای «high demand» می‌دهند؛ این اپ به‌صورت خودکار دوباره تلاش می‌کند و در صورت لزوم مدل جایگزین را صدا می‌زند." },
+    openrouter: { label: "OpenRouter (مدل‌های رایگان)", model: "google/gemma-4-31b-it:free", fallback: "nvidia/nemotron-3-ultra-550b-a55b:free", keyUrl: "https://openrouter.ai/keys", search: false, note: "کلید رایگان از openrouter.ai/keys. اگر مدل انتخابی پر بود، اپ خودکار به مدل جایگزین می‌رود." },
     anthropic: { label: "Anthropic Claude (پولی)", model: "claude-sonnet-4-20250514", fallback: "claude-3-5-haiku-20241022", keyUrl: "https://console.anthropic.com/settings/keys", search: true, note: "پولی است ولی جستجوی زنده‌ی وب دارد و دقیق‌ترین تحلیل خبری را می‌دهد." },
   };
   const RETRYABLE = (st) => st === 429 || st === 408 || st === 500 || st === 502 || st === 503 || st === 504;
+  /* shut-down ids (gemini-2.0-flash was turned off on 2026-06-01, 2.5 access is being
+     withdrawn): a model id saved in localStorage by an older version is ignored. */
+  const RETIRED = /gemini-(2\.0|2\.5)/;
 
   async function post(url, headers, body) {
     const r = await fetch(url, { method: "POST", headers: Object.assign({ "content-type": "application/json" }, headers), body: JSON.stringify(body) });
@@ -41,15 +44,51 @@
      (budget 0) and cap it on pro (128) so the answer always has room. */
   function buildGeminiConfig(model, max) {
     const gc = { maxOutputTokens: Math.max(max, 4096) };
-    if (/2\.5|-3/.test(model)) gc.thinkingConfig = { thinkingBudget: /pro/i.test(model) ? 128 : 0 };
+    // thinkingBudget only exists on 2.5 models; Gemini 3.x is steered with
+    // thinking_level on the Interactions API, so it is not sent to generateContent.
+    if (/^gemini-2\.5/.test(model)) gc.thinkingConfig = { thinkingBudget: /pro/i.test(model) ? 128 : 0 };
     return gc;
+  }
+
+  /* Google recommends the Interactions API for new projects
+     (ai.google.dev/gemini-api/docs/get-started). The generated text is read from the
+     interaction's `output_text`. The legacy generateContent endpoint is still fully
+     supported, so it stays as the fallback for multi-turn chat, image parts and for
+     any case where an Interactions call is unavailable. */
+  const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta";
+  const GEMINI_THINKING = "minimal"; // Gemini 3.x uses thinking_level, not thinkingBudget
+  const simpleText = (o) => o.messages.length === 1 && typeof o.messages[0].content === "string";
+  function geminiOutputText(j) {
+    if (typeof j.output_text === "string" && j.output_text.trim()) return j.output_text.trim();
+    const steps = Array.isArray(j.steps) ? j.steps : [];
+    return steps.map((s) => {
+      const cs = s && (s.content || s.contents);
+      const one = (c) => (typeof c === "string" ? c : c && typeof c.text === "string" ? c.text : c && Array.isArray(c.parts) ? c.parts.map((p) => p.text || "").join("") : "");
+      return (Array.isArray(cs) ? cs : cs ? [cs] : []).map(one).join("");
+    }).join("").trim();
+  }
+  async function geminiInteractions(key, model, o, max) {
+    const j = await post(`${GEMINI_API}/interactions`, { "x-goog-api-key": key }, {
+      model,
+      input: String(o.messages[0].content),
+      system_instruction: o.system,
+      generation_config: { max_output_tokens: Math.max(max, 4096), thinking_level: GEMINI_THINKING },
+    });
+    return geminiOutputText(j);
   }
 
   /* one provider attempt; model given explicitly so the fallback can be tried too */
   async function callProvider(prov, key, model, o) {
     const max = o.maxTokens || 2000;
     if (prov === "gemini") {
-      const j = await post(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, {}, {
+      // Preferred transport for a single-turn text request (analysis, screener): the
+      // Interactions API. Multi-turn chat, image parts and any Interactions failure fall
+      // through to generateContent below, which Google still fully supports.
+      if (simpleText(o)) {
+        const quick = await geminiInteractions(key, model, o, max).catch(() => "");
+        if (quick) return quick;
+      }
+      const j = await post(`${GEMINI_API}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, {}, {
         systemInstruction: { parts: [{ text: o.system }] },
         contents: o.messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: blocks(m.content).map((b) => (b.type === "image" ? { inlineData: { mimeType: b.source.media_type, data: b.source.data } } : { text: b.text })) })),
         generationConfig: buildGeminiConfig(model, max),
@@ -92,7 +131,8 @@
     if (!meta) throw new Error("سرویس AI نامعتبر است.");
     const key = keys[prov];
     if (!key) throw new Error("کلید API «" + meta.label + "» را در تنظیمات وارد کنید.");
-    const models = [...new Set([(keys.models && keys.models[prov]) || meta.model, meta.fallback].filter(Boolean))];
+    const saved = keys.models && keys.models[prov];
+    const models = [...new Set([(saved && !RETIRED.test(saved) ? saved : meta.model), meta.fallback].filter(Boolean))];
     const onProg = o.onProgress || (() => {});
     let lastErr = null;
     for (let attempt = 0; attempt < 3; attempt++) {
