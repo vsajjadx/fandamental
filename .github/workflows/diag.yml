@@ -13,7 +13,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node scripts/diag.mjs
+      - run: node scripts/diag2.mjs
+      - run: python3 scripts/duka_probe.py
       - name: Publish results
         run: |
           cd out
