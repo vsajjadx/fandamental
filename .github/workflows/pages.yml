@@ -45,8 +45,15 @@ jobs:
           cp -r index.html css js _site/
           touch _site/.nojekyll
       - uses: actions/configure-pages@v5
+      # The artifact name is unique per attempt: a "Re-run" of the same workflow
+      # used to leave two artifacts named "github-pages" in one run, and
+      # deploy-pages@v4 aborts with "Multiple artifacts named github-pages
+      # were unexpectedly found for this workflow run".
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+          name: github-pages-${{ github.run_attempt }}
       - id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
