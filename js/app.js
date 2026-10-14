@@ -564,11 +564,13 @@
     if (S.scanning) return;
     S.scanning = true; $("#btnScan").disabled = true; $("#scanProg").textContent = "شروع اسکن…";
     const rows = [];
-    const list = D.SYMBOLS.filter((s) => s.group !== "بورس تهران"); // TSETMC only answers from Iranian IPs; scanned separately
+    // همه‌ی بازارها شامل بورس تهران؛ TSETMC آهسته است و به pacing نیاز دارد — یک‌به‌یک و با وقفه اسکن می‌شود
+    const list = D.SYMBOLS.slice();
     for (let k = 0; k < list.length; k++) {
       const sym = list[k];
-      $("#scanProg").textContent = `اسکن ${k + 1}/${list.length}: ${sym.name}`;
+      $("#scanProg").textContent = `اسکن ${k + 1}/${list.length}: ${sym.name}${sym.tse ? " (TSETMC — ممکن است کمی طول بکشد)" : ""}`;
       try {
+        if (k) await D.sleep(sym.tse ? 1500 : 120);
         const r = await D.fetchCandles(sym, S.tf, S.keys, 400);
         const c = dedupe(r.candles);
         const a = FA.signal.analyze(c, { early: true, marketEntry: true, threshold: 0 });

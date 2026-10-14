@@ -39,6 +39,11 @@ check("metals expose live spot codes", ["XAUUSD", "XAGUSD", "XPTUSD"].every((id)
 check("indices have Yahoo fallbacks", ["DXY", "SPX", "NDX", "DJI"].every((id) => !!s(id).yh));
 check("FX pairs have Yahoo fallbacks", D.SYMBOLS.filter((x) => x.group === "فارکس").every((x) => !!x.yh));
 check("bourse group present in the catalog", D.SYMBOLS.some((x) => x.group === "بورس تهران" && x.tse));
+// regression: the bourse catalog used to hardcode ONE symbol (فولاد) — it must ship many
+const tseRows = D.SYMBOLS.filter((x) => x.tse);
+check("bourse catalog has >= 20 symbols with insCode", tseRows.length >= 20, String(tseRows.length));
+check("bourse insCodes are 17-18 digit ids", tseRows.every((x) => /^\d{10,25}$/.test(x.tse)));
+check("no duplicate TSE insCodes", new Set(tseRows.map((x) => x.tse)).size === tseRows.length);
 
 // --- timeframe feasibility ---
 const TF = (id) => D.TIMEFRAMES.find((t) => t.id === id);

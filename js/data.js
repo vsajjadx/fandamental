@@ -40,8 +40,30 @@
     { id: "SPX", name: "S&P 500", group: "شاخص‌ها", tv: "FOREXCOM:SPXUSD", td: "SPX", yh: "^GSPC" },
     { id: "NDX", name: "Nasdaq 100", group: "شاخص‌ها", tv: "FOREXCOM:NSXUSD", td: "NDX", yh: "^NDX" },
     { id: "DJI", name: "Dow Jones", group: "شاخص‌ها", tv: "FOREXCOM:DJI", td: "DJI", yh: "^DJI" },
-    // بورس تهران — با جستجوی زنده‌ی TSETMC هر نمادی قابل افزودن است
+    // بورس تهران — ۲۳ نماد پرتراورد با insCode تاییدشده + جستجوی زنده‌ی TSETMC برای هر نماد دیگر
     { id: "TSE-فولاد", name: "فولاد مبارکه", group: "بورس تهران", tv: "", tse: "46348559193224090", td: "", yh: "" },
+    { id: "TSE-فملی", name: "ملی صنایع مس", group: "بورس تهران", tv: "", tse: "35425587644337450", td: "", yh: "" },
+    { id: "TSE-شپنا", name: "پالایش نفت اصفهان", group: "بورس تهران", tv: "", tse: "7745894403636165", td: "", yh: "" },
+    { id: "TSE-شبندر", name: "پالایش نفت بندرعباس", group: "بورس تهران", tv: "", tse: "35366681030756042", td: "", yh: "" },
+    { id: "TSE-خودرو", name: "ایران خودرو", group: "بورس تهران", tv: "", tse: "65883838195688438", td: "", yh: "" },
+    { id: "TSE-وبملت", name: "بانک ملت", group: "بورس تهران", tv: "", tse: "778253364357513", td: "", yh: "" },
+    { id: "TSE-وتجارت", name: "بانک تجارت", group: "بورس تهران", tv: "", tse: "63917421733088077", td: "", yh: "" },
+    { id: "TSE-وپاسار", name: "پاسارگاد (پاسارگاد) بانک", group: "بورس تهران", tv: "", tse: "9536587154100457", td: "", yh: "" },
+    { id: "TSE-وبصادر", name: "بانک صادرات", group: "بورس تهران", tv: "", tse: "28320293733348826", td: "", yh: "" },
+    { id: "TSE-شستا", name: "توسعه صنایع بهشهر", group: "بورس تهران", tv: "", tse: "2400322364771558", td: "", yh: "" },
+    { id: "TSE-خساپا", name: "سیمان خوزستان و سپهر", group: "بورس تهران", tv: "", tse: "44891482026867833", td: "", yh: "" },
+    { id: "TSE-ذوب", name: "ذوب آهن اصفهان", group: "بورس تهران", tv: "", tse: "71483646978964608", td: "", yh: "" },
+    { id: "TSE-کگل", name: "کشت و صنعت گلبرگ", group: "بورس تهران", tv: "", tse: "35700344742885862", td: "", yh: "" },
+    { id: "TSE-غگل", name: "گل گهر", group: "بورس تهران", tv: "", tse: "22299894048845903", td: "", yh: "" },
+    { id: "TSE-بپاس", name: "پتروشیمی پاسارگاد", group: "بورس تهران", tv: "", tse: "51971068201094874", td: "", yh: "" },
+    { id: "TSE-فنورد", name: "فولاد آلیاژی یزد", group: "بورس تهران", tv: "", tse: "56324206651661881", td: "", yh: "" },
+    { id: "TSE-کچاد", name: "کالسیمنچاد (چادرملو)", group: "بورس تهران", tv: "", tse: "18027801615184692", td: "", yh: "" },
+    { id: "TSE-پارسان", name: "پارسان جنوب", group: "بورس تهران", tv: "", tse: "23441366113375722", td: "", yh: "" },
+    { id: "TSE-همراه", name: "همراه اول", group: "بورس تهران", tv: "", tse: "68635710163497089", td: "", yh: "" },
+    { id: "TSE-شتران", name: "ایران ترانسفو", group: "بورس تهران", tv: "", tse: "51617145873056483", td: "", yh: "" },
+    { id: "TSE-خمهر", name: "پتروشیمی خمیر", group: "بورس تهران", tv: "", tse: "17330546482145553", td: "", yh: "" },
+    { id: "TSE-کگهر", name: "کروی (کگهر)", group: "بورس تهران", tv: "", tse: "30703140537034664", td: "", yh: "" },
+    { id: "TSE-وبهمن", name: "صنایع بهمن (خودرو)", group: "بورس تهران", tv: "", tse: "18063426072758458", td: "", yh: "" },
   ];
 
   const TIMEFRAMES = [
@@ -52,7 +74,8 @@
     { id: "1d", label: "1D", bn: "1d", td: "1day", tv: "D", sec: 86400 },
   ];
 
-  const TSE_IDS = { "فولاد": "46348559193000000", "شپنا": "", "خودرو": "" };
+  /* کد نمادهای هاردکد قدیمی حذف شد — فهرست کامل و تاییدشده داخل SYMBOLS است؛
+     هر نماد دیگری با جستجوی زنده‌ی tseSearch اضافه می‌شود. */
 
   /* ---------------- tiny fetch helpers ---------------- */
   async function getJson(url, ms = 15000, headers) {
@@ -319,7 +342,7 @@
   }
 
   FA.data = {
-    SYMBOLS, TIMEFRAMES, TSE_IDS, fetchCandles, parseCsv, getJson, sleep, num, RELAY,
+    SYMBOLS, TIMEFRAMES, fetchCandles, parseCsv, getJson, sleep, num, RELAY,
     fromBinance, fromTwelve, fromFrankfurter, fromCoinGecko, fromYahoo, fromTsetmc, tseSearch, spotPrice,
     parseBinance, parseTwelve, parseFrankfurter, parseCoinGecko, parseYahoo, parseTsetmc, rangeForTf, resolveTimeframe,
   };

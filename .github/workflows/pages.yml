@@ -27,6 +27,8 @@ jobs:
         run: node tests/engine.test.js
       - name: Data-layer tests
         run: node tests/data.test.js
+      - name: AI-layer tests
+        run: node tests/ai.test.js
 
   deploy:
     needs: test

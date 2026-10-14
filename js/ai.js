@@ -35,6 +35,16 @@
   }
   const blocks = (c) => (typeof c === "string" ? [{ type: "text", text: c }] : c);
 
+  /* Gemini 2.5/3 "think" before answering. Without an explicit thinkingConfig the whole
+     maxOutputTokens was consumed by hidden thinking and the visible text came back empty,
+     which killed the AI ranking («پاسخ خالی از Gemini»). Disable thinking on flash models
+     (budget 0) and cap it on pro (128) so the answer always has room. */
+  function buildGeminiConfig(model, max) {
+    const gc = { maxOutputTokens: Math.max(max, 4096) };
+    if (/2\.5|-3/.test(model)) gc.thinkingConfig = { thinkingBudget: /pro/i.test(model) ? 128 : 0 };
+    return gc;
+  }
+
   /* one provider attempt; model given explicitly so the fallback can be tried too */
   async function callProvider(prov, key, model, o) {
     const max = o.maxTokens || 2000;
@@ -42,11 +52,15 @@
       const j = await post(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, {}, {
         systemInstruction: { parts: [{ text: o.system }] },
         contents: o.messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: blocks(m.content).map((b) => (b.type === "image" ? { inlineData: { mimeType: b.source.media_type, data: b.source.data } } : { text: b.text })) })),
-        generationConfig: { maxOutputTokens: Math.max(max, 4096) },
+        generationConfig: buildGeminiConfig(model, max),
       });
       const c = j.candidates && j.candidates[0];
       const text = c && c.content && c.content.parts ? c.content.parts.map((p) => p.text || "").join("").trim() : "";
-      if (!text) throw new Error(j.promptFeedback && j.promptFeedback.blockReason ? "درخواست توسط Gemini مسدود شد: " + j.promptFeedback.blockReason : "پاسخ خالی از Gemini.");
+      if (!text) {
+        if (j.promptFeedback && j.promptFeedback.blockReason) throw new Error("درخواست توسط Gemini مسدود شد: " + j.promptFeedback.blockReason);
+        // a thinking-only answer (no visible parts) is retried with the next model — not fatal
+        throw Object.assign(new Error("پاسخ خالی از Gemini (مدل بودجه‌ی توکن را صرف «فکر کردن» کرد و متنی برنگرداند)؛ دوباره تلاش می‌شود…"), { status: 503 });
+      }
       return text;
     }
     if (prov === "openrouter") {
@@ -58,7 +72,7 @@
         }))),
       });
       const text = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-      if (!text) throw new Error("پاسخ خالی از OpenRouter.");
+      if (!text) throw Object.assign(new Error("پاسخ خالی از OpenRouter؛ با مدل جایگزین دوباره تلاش می‌شود…"), { status: 503 });
       return String(text).trim();
     }
     // anthropic
@@ -199,7 +213,6 @@
       user = rows.join("\n") + "\nRank the top entries (best first, include only candidates worth trading; side none for ones to skip).";
     } else {
       if (onProgress) onProgress("دریافت تیترهای زنده برای رتبه‌بندی…");
-      let heads = [];
       try { heads = await gdeltNews("(federal reserve OR inflation OR \"stock market\" OR gold OR oil OR bitcoin OR forex) (outlook OR forecast OR decision OR data)", 30, "2d"); }
       catch (e) { heads = []; }
       system = "You are a senior trading-desk analyst. You have NO web access. Rank the supplied market scan: high reward potential with LOW risk first. Use the supplied technical scores and the supplied macro headlines for context only. Never invent numbers or headlines. " + SCREEN_SHAPE;
