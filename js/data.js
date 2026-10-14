@@ -1,47 +1,47 @@
-/* Fandamental — market catalog + OHLC data providers (all free, browser-direct).
-   - Binance (crypto)          — CORS open, no key.
-   - Frankfurter (FX daily)    — CORS open, no key.
-   - CoinGecko (silver/platinum daily) — CORS open, no key.
-   - Twelve Data (optional key) — forex, metals, indices, energy.
-   - TSETMC (بورس تهران)       — مستقیم از cdn.tsetmc.com؛ بدون کلید. فقط از داخل ایران قابل دسترس است. */
+/* Fandamental — market catalog + OHLC providers (all free, browser-direct).
+   Chain per asset (first provider that answers wins):
+     Binance      — crypto + PAXG (gold proxy) · CORS open · no key · all timeframes
+     TSETMC       — بورس تهران · no key · daily · direct, then free CORS relays
+     Frankfurter  — FX daily · CORS open · no key  → returns a FULL year+ of daily candles
+     CoinGecko    — silver / platinum daily · CORS open · no key
+     Yahoo        — metals, energy, indices, FX, crypto fallback · CORS open · no key
+     gold-api.com — live spot XAU / XAG / XPT · CORS open · no key
+     Twelve Data  — optional free key · intraday FX / metals / indices / energy */
 (function (g) {
   const FA = (g.FA = g.FA || {});
 
+  /* ---------------- catalog ---------------- */
   const SYMBOLS = [
-    // Forex
-    { id: "EURUSD", name: "EUR/USD", group: "فارکس", tv: "OANDA:EURUSD", td: "EUR/USD", fx: ["EUR", "USD"] },
-    { id: "GBPUSD", name: "GBP/USD", group: "فارکس", tv: "OANDA:GBPUSD", td: "GBP/USD", fx: ["GBP", "USD"] },
-    { id: "USDJPY", name: "USD/JPY", group: "فارکس", tv: "OANDA:USDJPY", td: "USD/JPY", fx: ["USD", "JPY"] },
-    { id: "USDCHF", name: "USD/CHF", group: "فارکس", tv: "OANDA:USDCHF", td: "USD/CHF", fx: ["USD", "CHF"] },
-    { id: "AUDUSD", name: "AUD/USD", group: "فارکس", tv: "OANDA:AUDUSD", td: "AUD/USD", fx: ["AUD", "USD"] },
-    { id: "USDCAD", name: "USD/CAD", group: "فارکس", tv: "OANDA:USDCAD", td: "USD/CAD", fx: ["USD", "CAD"] },
-    { id: "NZDUSD", name: "NZD/USD", group: "فارکس", tv: "OANDA:NZDUSD", td: "NZD/USD", fx: ["NZD", "USD"] },
-    { id: "EURGBP", name: "EUR/GBP", group: "فارکس", tv: "OANDA:EURGBP", td: "EUR/GBP", fx: ["EUR", "GBP"] },
-    { id: "EURJPY", name: "EUR/JPY", group: "فارکس", tv: "OANDA:EURJPY", td: "EUR/JPY", fx: ["EUR", "JPY"] },
-    { id: "GBPJPY", name: "GBP/JPY", group: "فارکس", tv: "OANDA:GBPJPY", td: "GBP/JPY", fx: ["GBP", "JPY"] },
-    // Metals & commodities
-    { id: "XAUUSD", name: "طلا (XAU/USD)", group: "فلزات و کالا", tv: "OANDA:XAUUSD", td: "XAU/USD", bn: "PAXGUSDT", cg: "pax-gold", fxUSD: true },
-    { id: "XAGUSD", name: "نقره (XAG/USD)", group: "فلزات و کالا", tv: "OANDA:XAGUSD", td: "XAG/USD", cg: "silver-one" },
-    { id: "XPTUSD", name: "پلاتین (XPT/USD)", group: "فلزات و کالا", tv: "OANDA:XPTUSD", td: "XPT/USD", cg: "platinum" },
-    { id: "USOIL", name: "نفت WTI", group: "فلزات و کالا", tv: "TVC:USOIL", td: "WTI/USD" },
-    // Crypto
-    { id: "BTCUSDT", name: "بیت‌کوین", group: "کریپتو", tv: "BINANCE:BTCUSDT", bn: "BTCUSDT", td: "BTC/USD" },
-    { id: "ETHUSDT", name: "اتریوم", group: "کریپتو", tv: "BINANCE:ETHUSDT", bn: "ETHUSDT", td: "ETH/USD" },
-    { id: "BNBUSDT", name: "BNB", group: "کریپتو", tv: "BINANCE:BNBUSDT", bn: "BNBUSDT", td: "BNB/USD" },
-    { id: "SOLUSDT", name: "سولانا", group: "کریپتو", tv: "BINANCE:SOLUSDT", bn: "SOLUSDT", td: "SOL/USD" },
-    { id: "XRPUSDT", name: "ریپل", group: "کریپتو", tv: "BINANCE:XRPUSDT", bn: "XRPUSDT", td: "XRP/USD" },
-    { id: "ADAUSDT", name: "کاردانو", group: "کریپتو", tv: "BINANCE:ADAUSDT", bn: "ADAUSDT", td: "ADA/USD" },
-    { id: "DOGEUSDT", name: "دوج‌کوین", group: "کریپتو", tv: "BINANCE:DOGEUSDT", bn: "DOGEUSDT", td: "DOGE/USD" },
-    { id: "TRXUSDT", name: "ترون", group: "کریپتو", tv: "BINANCE:TRXUSDT", bn: "TRXUSDT", td: "TRX/USD" },
-    { id: "TONUSDT", name: "تون‌کوین", group: "کریپتو", tv: "BINANCE:TONUSDT", bn: "TONUSDT", td: "TON/USD" },
-    { id: "LINKUSDT", name: "چین‌لینک", group: "کریپتو", tv: "BINANCE:LINKUSDT", bn: "LINKUSDT", td: "LINK/USD" },
-    // Indices & energy — daily; multi-timeframe needs a Twelve Data key
-    { id: "DXY", name: "شاخص دلار (DXY)", group: "شاخص‌ها", tv: "TVC:DXY", td: "DXY" },
-    { id: "SPX", name: "S&P 500", group: "شاخص‌ها", tv: "FOREXCOM:SPXUSD", td: "SPX" },
-    { id: "NDX", name: "Nasdaq 100", group: "شاخص‌ها", tv: "FOREXCOM:NSXUSD", td: "NDX" },
-    { id: "DJI", name: "Dow Jones", group: "شاخص‌ها", tv: "FOREXCOM:DJI", td: "DJI" },
+    { id: "EURUSD", name: "EUR/USD", group: "فارکس", tv: "OANDA:EURUSD", td: "EUR/USD", yh: "EURUSD=X", fx: ["EUR", "USD"] },
+    { id: "GBPUSD", name: "GBP/USD", group: "فارکس", tv: "OANDA:GBPUSD", td: "GBP/USD", yh: "GBPUSD=X", fx: ["GBP", "USD"] },
+    { id: "USDJPY", name: "USD/JPY", group: "فارکس", tv: "OANDA:USDJPY", td: "USD/JPY", yh: "USDJPY=X", fx: ["USD", "JPY"] },
+    { id: "USDCHF", name: "USD/CHF", group: "فارکس", tv: "OANDA:USDCHF", td: "USD/CHF", yh: "USDCHF=X", fx: ["USD", "CHF"] },
+    { id: "AUDUSD", name: "AUD/USD", group: "فارکس", tv: "OANDA:AUDUSD", td: "AUD/USD", yh: "AUDUSD=X", fx: ["AUD", "USD"] },
+    { id: "USDCAD", name: "USD/CAD", group: "فارکس", tv: "OANDA:USDCAD", td: "USD/CAD", yh: "USDCAD=X", fx: ["USD", "CAD"] },
+    { id: "NZDUSD", name: "NZD/USD", group: "فارکس", tv: "OANDA:NZDUSD", td: "NZD/USD", yh: "NZDUSD=X", fx: ["NZD", "USD"] },
+    { id: "EURGBP", name: "EUR/GBP", group: "فارکس", tv: "OANDA:EURGBP", td: "EUR/GBP", yh: "EURGBP=X", fx: ["EUR", "GBP"] },
+    { id: "EURJPY", name: "EUR/JPY", group: "فارکس", tv: "OANDA:EURJPY", td: "EUR/JPY", yh: "EURJPY=X", fx: ["EUR", "JPY"] },
+    { id: "GBPJPY", name: "GBP/JPY", group: "فارکس", tv: "OANDA:GBPJPY", td: "GBP/JPY", yh: "GBPJPY=X", fx: ["GBP", "JPY"] },
+    { id: "XAUUSD", name: "طلا (XAU/USD)", group: "فلزات و کالا", tv: "OANDA:XAUUSD", td: "XAU/USD", bn: "PAXGUSDT", spot: "XAU", yh: "GC=F", cg: "pax-gold", cgNote: "طلای توکنیزه (PAXG) به‌عنوان پروکسی قیمت طلا" },
+    { id: "XAGUSD", name: "نقره (XAG/USD)", group: "فلزات و کالا", tv: "OANDA:XAGUSD", td: "XAG/USD", spot: "XAG", yh: "SI=F", cg: "kinesis-silver", cgNote: "نقره‌ی توکنیزه (KAG) به‌عنوان پروکسی قیمت نقره" },
+    { id: "XPTUSD", name: "پلاتین (XPT/USD)", group: "فلزات و کالا", tv: "OANDA:XPTUSD", td: "XPT/USD", spot: "XPT", yh: "PL=F", cg: "gram-platinum", cgScale: 31.1034768, cgNote: "قیمت گرمی × ۳۱٫۱۰۳۵ = قیمت یک اونس" },
+    { id: "USOIL", name: "نفت WTI", group: "فلزات و کالا", tv: "TVC:USOIL", td: "WTI/USD", yh: "CL=F" },
+    { id: "BTCUSDT", name: "بیت‌کوین", group: "کریپتو", tv: "BINANCE:BTCUSDT", bn: "BTCUSDT", yh: "BTC-USD", td: "BTC/USD" },
+    { id: "ETHUSDT", name: "اتریوم", group: "کریپتو", tv: "BINANCE:ETHUSDT", bn: "ETHUSDT", yh: "ETH-USD", td: "ETH/USD" },
+    { id: "BNBUSDT", name: "BNB", group: "کریپتو", tv: "BINANCE:BNBUSDT", bn: "BNBUSDT", yh: "BNB-USD", td: "BNB/USD" },
+    { id: "SOLUSDT", name: "سولانا", group: "کریپتو", tv: "BINANCE:SOLUSDT", bn: "SOLUSDT", yh: "SOL-USD", td: "SOL/USD" },
+    { id: "XRPUSDT", name: "ریپل", group: "کریپتو", tv: "BINANCE:XRPUSDT", bn: "XRPUSDT", yh: "XRP-USD", td: "XRP/USD" },
+    { id: "ADAUSDT", name: "کاردانو", group: "کریپتو", tv: "BINANCE:ADAUSDT", bn: "ADAUSDT", yh: "ADA-USD", td: "ADA/USD" },
+    { id: "DOGEUSDT", name: "دوج‌کوین", group: "کریپتو", tv: "BINANCE:DOGEUSDT", bn: "DOGEUSDT", yh: "DOGE-USD", td: "DOGE/USD" },
+    { id: "TRXUSDT", name: "ترون", group: "کریپتو", tv: "BINANCE:TRXUSDT", bn: "TRXUSDT", yh: "TRX-USD", td: "TRX/USD" },
+    { id: "TONUSDT", name: "تون‌کوین", group: "کریپتو", tv: "BINANCE:TONUSDT", bn: "TONUSDT", yh: "TON11419-USD", td: "TON/USD" },
+    { id: "LINKUSDT", name: "چین‌لینک", group: "کریپتو", tv: "BINANCE:LINKUSDT", bn: "LINKUSDT", yh: "LINK-USD", td: "LINK/USD" },
+    { id: "DXY", name: "شاخص دلار (DXY)", group: "شاخص‌ها", tv: "TVC:DXY", td: "DXY", yh: "DX-Y.NYB" },
+    { id: "SPX", name: "S&P 500", group: "شاخص‌ها", tv: "FOREXCOM:SPXUSD", td: "SPX", yh: "^GSPC" },
+    { id: "NDX", name: "Nasdaq 100", group: "شاخص‌ها", tv: "FOREXCOM:NSXUSD", td: "NDX", yh: "^NDX" },
+    { id: "DJI", name: "Dow Jones", group: "شاخص‌ها", tv: "FOREXCOM:DJI", td: "DJI", yh: "^DJI" },
     // بورس تهران — با جستجوی زنده‌ی TSETMC هر نمادی قابل افزودن است
-    { id: "TSE-فولاد", name: "فولاد مبارکه", group: "بورس تهران", tv: "", tse: "46348559193224090", td: "" },
+    { id: "TSE-فولاد", name: "فولاد مبارکه", group: "بورس تهران", tv: "", tse: "46348559193224090", td: "", yh: "" },
   ];
 
   const TIMEFRAMES = [
@@ -52,101 +52,191 @@
     { id: "1d", label: "1D", bn: "1d", td: "1day", tv: "D", sec: 86400 },
   ];
 
-  const TSE_IDS = { "فولاد": "46348559193224090" };
+  const TSE_IDS = { "فولاد": "46348559193000000", "شپنا": "", "خودرو": "" };
 
+  /* ---------------- tiny fetch helpers ---------------- */
   async function getJson(url, ms = 15000, headers) {
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
     try {
       const r = await fetch(url, { signal: ctl.signal, headers: headers || {} });
       if (!r.ok) throw new Error("HTTP " + r.status);
       return await r.json();
+    } catch (e) {
+      throw e && e.name === "AbortError" ? new Error("زمان انتظار تمام شد") : e;
     } finally { clearTimeout(timer); }
   }
+  const RELAY = [
+    (u) => u,
+    (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+    (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
+    (u) => "https://api.cors.lol/?url=" + encodeURIComponent(u),
+  ];
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // null / "" must NOT become 0 (Yahoo pads holidays with null) — that bug fed fake zero-price candles
+  const num = (x) => { if (x === null || x === undefined || x === "") return NaN; const v = +x; return isFinite(v) ? v : NaN; };
 
-  /* ---------- Binance (crypto) ---------- */
+  /* ---------------- Binance (crypto + PAXG gold proxy) ---------------- */
+  function parseBinance(rows) {
+    return (rows || []).map((r) => ({ t: Math.floor(r[0] / 1000), o: +r[1], h: +r[2], l: +r[3], c: +r[4], v: +r[5] }));
+  }
   async function fromBinance(bn, tf, limit) {
-    const q = `symbol=${bn}&interval=${tf.bn}&limit=${Math.min(limit, 1000)}`;
+    const q = "symbol=" + bn + "&interval=" + tf.bn + "&limit=" + Math.min(limit, 1000);
     let rows, lastErr;
     for (const host of ["https://data-api.binance.vision", "https://api.binance.com"]) {
-      try { rows = await getJson(`${host}/api/v3/klines?${q}`); break; } catch (e) { lastErr = e; }
+      try { rows = await getJson(host + "/api/v3/klines?" + q, 14000); break; } catch (e) { lastErr = e; }
     }
-    if (!rows) throw new Error("دسترسی به Binance ممکن نشد (" + (lastErr && lastErr.message) + ").");
-    return rows.map((r) => ({ t: Math.floor(r[0] / 1000), o: +r[1], h: +r[2], l: +r[3], c: +r[4], v: +r[5] }));
+    if (!rows) throw new Error("Binance در دسترس نبود (" + (lastErr && lastErr.message) + ")");
+    return parseBinance(rows);
   }
 
-  /* ---------- Twelve Data (optional key) ---------- */
-  async function fromTwelve(sym, tf, limit, key) {
-    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=${tf.td}&outputsize=${Math.min(limit, 5000)}&order=ASC&timezone=UTC&apikey=${encodeURIComponent(key)}`;
-    const j = await getJson(url);
+  /* ---------------- Twelve Data (optional free key) ---------------- */
+  function parseTwelve(j) {
     if (j.status === "error" || !j.values) throw new Error("Twelve Data: " + (j.message || "پاسخ نامعتبر"));
     return j.values.map((r) => ({
       t: Math.floor(Date.parse(r.datetime.length > 10 ? r.datetime.replace(" ", "T") + "Z" : r.datetime + "T00:00:00Z") / 1000),
       o: +r.open, h: +r.high, l: +r.low, c: +r.close, v: r.volume ? +r.volume : 0,
-    }));
+    })).sort((a, b) => a.t - b.t);
+  }
+  async function fromTwelve(sym, tf, limit, key) {
+    const url = "https://api.twelvedata.com/time_series?symbol=" + encodeURIComponent(sym) + "&interval=" + tf.td + "&outputsize=" + Math.min(limit, 5000) + "&order=ASC&timezone=UTC&apikey=" + encodeURIComponent(key);
+    const j = await getJson(url, 18000);
+    if (j.code === 401) throw new Error("کلید Twelve Data نامعتبر است (401)");
+    return parseTwelve(j);
   }
 
-  /* ---------- Frankfurter (free FX daily, CORS open) ---------- */
+  /* ---------------- Frankfurter (free FX daily, CORS open, no key) ---------------- */
+  function parseFrankfurter(j, base, quote) {
+    const rates = j && j.rates;
+    if (!rates) throw new Error("Frankfurter: پاسخ نامعتبر");
+    // modern range answer -> rates[date][QUOTE]; legacy single answer -> rates[QUOTE] + j.date
+    if (typeof rates[quote] === "number") {
+      const t = Math.floor(Date.parse(String(j.date || new Date().toISOString().slice(0, 10)) + "T00:00:00Z") / 1000);
+      return [{ t, o: rates[quote], h: rates[quote], l: rates[quote], c: rates[quote], v: 0 }];
+    }
+    const dates = Object.keys(rates).filter((d) => rates[d] && isFinite(rates[d][quote])).sort();
+    return dates.map((d) => {
+      const v = +rates[d][quote];
+      return { t: Math.floor(Date.parse(d + "T00:00:00Z") / 1000), o: v, h: v, l: v, c: v, v: 0 };
+    }).filter((x) => isFinite(x.t) && x.c > 0);
+  }
   async function fromFrankfurter(pair, limit) {
-    const [a, b] = pair;
-    if (a === b) throw new Error("جفت‌ارز نامعتبر.");
-    let j = null;
-    try { j = await getJson(`https://api.frankfurter.dev/v1/${a}/latest?base=${a}&symbols=${b}`); }
-    catch (e) { j = await getJson(`https://api.frankfurter.app/latest?from=${a}&to=${b}`); }
-    if (!j || !j.rates || !(b in (j.rates || {}))) throw new Error("Frankfurter: پاسخ نامعتبر");
-    const last = j.rates[b], base = j.date;
-    const from = new Date(base); from.setDate(from.getDate() - 40);
-    const iso = from.toISOString().slice(0, 10);
-    let h = null;
-    try { h = await getJson(`https://api.frankfurter.dev/v1/${iso}?base=${a}&symbols=${b}`); }
-    catch (e) { try { h = await getJson(`https://api.frankfurter.app/${iso}?from=${a}&to=${b}`); } catch (e2) {} }
-    const series = h && h.rates && h.rates[b] ? h.rates[b] : {};
-    const dates = Object.keys(series).sort();
-    if (!dates.length) throw new Error("Frankfurter: سابقه‌ی خالی");
-    const out = [];
-    for (const d of dates) out.push({ t: Math.floor(Date.parse(d + "T00:00:00Z") / 1000), o: series[d], h: series[d], l: series[d], c: series[d], v: 0 });
-    if (base !== dates[dates.length - 1]) out.push({ t: Math.floor(Date.parse(base + "T00:00:00Z") / 1000), o: last, h: last, l: last, c: last, v: 0 });
-    return { candles: out, note: "داده‌ی روزانه‌ی رایگان (بدون کندل دقیقه‌ای). برای تایم‌فریم‌های پایین‌تر کلید Twelve Data لازم است." };
+    const a = pair[0], b = pair[1];
+    if (a === b) throw new Error("جفت‌ارز نامعتبر");
+    const days = Math.max(420, Math.min(2500, Math.round(limit * 2)));
+    const to = new Date(), from = new Date(Date.now() - days * 86400e3);
+    const iso = (d) => d.toISOString().slice(0, 10);
+    const urls = [
+      "https://api.frankfurter.dev/v1/" + iso(from) + ".." + iso(to) + "?base=" + a + "&symbols=" + b,
+      "https://api.frankfurter.app/" + iso(from) + ".." + iso(to) + "?base=" + a + "&symbols=" + b,
+    ];
+    let lastErr, candles = null;
+    for (const u of urls) {
+      try { candles = parseFrankfurter(await getJson(u, 15000), a, b); if (candles.length >= 60) break; } catch (e) { lastErr = e; }
+    }
+    if (!candles || !candles.length) throw new Error("Frankfurter: " + (lastErr && lastErr.message ? lastErr.message : "سابقه‌ی خالی"));
+    return { candles: candles.slice(-Math.max(120, Math.min(limit, 1000))), note: "داده‌ی روزانه‌ی رایگان Frankfurter (بدون کندل دقیقه‌ای)؛ برای تایم‌فریم پایین‌تر کلید Twelve Data لازم است." };
   }
 
-  /* ---------- CoinGecko (silver / platinum daily, CORS open, no key) ---------- */
-  async function fromCoinGecko(cg, limit) {
-    const days = Math.max(30, Math.min(365, Math.ceil(limit / 2)));
-    const j = await getJson(`https://api.coingecko.com/api/v3/coins/${cg}/market_chart?vs_currency=usd&days=${days}&interval=daily`, 20000);
-    if (!j.prices || !j.prices.length) throw new Error("CoinGecko: پاسخ نامعتبر");
-    const out = [];
+  /* ---------------- CoinGecko (silver / platinum daily, CORS open, no key) ---------------- */
+  function parseCoinGecko(j, scale) {
+    if (!j || !j.prices || !j.prices.length) throw new Error("CoinGecko: پاسخ نامعتبر");
+    const k = scale && isFinite(scale) ? scale : 1, out = [];
     for (let i = 0; i < j.prices.length; i++) {
-      const t = Math.floor(j.prices[i][0] / 1000), c = j.prices[i][1];
-      const o = i ? j.prices[i - 1][1] : c;
+      const t = Math.floor(j.prices[i][0] / 1000), c = +j.prices[i][1] * k;
+      if (!isFinite(t) || !isFinite(c)) continue;
+      const o = out.length ? out[out.length - 1].c : c;
       out.push({ t, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 0 });
     }
-    return { candles: out, note: "داده‌ی روزانه‌ی رایگان (بدون کندل دقیقه‌ای). برای تایم‌فریم‌های پایین‌تر کلید Twelve Data لازم است." };
+    if (!out.length) throw new Error("CoinGecko: سابقه‌ی خالی");
+    return out;
+  }
+  async function fromCoinGecko(cg, limit, scale) {
+    const days = Math.max(90, Math.min(365, Math.ceil(limit / 2)));
+    const j = await getJson("https://api.coingecko.com/api/v3/coins/" + cg + "/market_chart?vs_currency=usd&days=" + days + "&interval=daily", 22000);
+    return parseCoinGecko(j, scale);
   }
 
-  /* ---------- TSETMC (بورس تهران، بدون کلید؛ فقط از IP ایران) ---------- */
+  /* ---------------- Yahoo Finance (metals / energy / indices / FX / crypto) ---------------- */
+  function rangeForTf(id) {
+    return ({
+      "5m": { interval: "5m", range: "1mo" },
+      "15m": { interval: "15m", range: "1mo" },
+      "1h": { interval: "60m", range: "3mo" },
+      "4h": { interval: "60m", range: "6mo" },
+      "1d": { interval: "1d", range: "2y" },
+    })[id] || { interval: "1d", range: "2y" };
+  }
+  function parseYahoo(j) {
+    const res = j && j.chart && j.chart.result && j.chart.result[0];
+    if (!res || !res.timestamp || !res.indicators || !res.indicators.quote) throw new Error("ساختار پاسخ Yahoo ناشناخته است");
+    const q = res.indicators.quote[0], ts = res.timestamp, out = [];
+    for (let i = 0; i < ts.length; i++) {
+      const o = num(q.open ? q.open[i] : NaN), h = num(q.high ? q.high[i] : NaN), l = num(q.low ? q.low[i] : NaN), c = num(q.close ? q.close[i] : NaN);
+      if (![o, h, l, c].every((x) => isFinite(x))) continue;
+      out.push({ t: Math.floor(ts[i]), o, h, l, c, v: isFinite(num(q.volume ? q.volume[i] : NaN)) ? +q.volume[i] : 0 });
+    }
+    if (!out.length) throw new Error("Yahoo داده‌ای برنگرداند");
+    return out;
+  }
+  async function fromYahoo(ySym, tf, limit) {
+    const r = rangeForTf(tf.id);
+    const q = "?interval=" + r.interval + "&range=" + r.range;
+    let j, lastErr;
+    for (const host of ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"]) {
+      try { j = await getJson(host + "/v8/finance/chart/" + encodeURIComponent(ySym) + q, 16000); break; } catch (e) { lastErr = e; }
+    }
+    if (!j) throw new Error("Yahoo پاسخ نداد (" + (lastErr && lastErr.message) + ")");
+    return parseYahoo(j).slice(-Math.max(120, Math.min(limit, 1000)));
+  }
+
+  /* ---------------- gold-api.com (live spot, CORS open, no key) ---------------- */
+  async function spotPrice(sym) {
+    if (!sym || !sym.spot) return null;
+    try {
+      const j = await getJson("https://api.gold-api.com/price/" + sym.spot, 10000);
+      if (j && isFinite(+j.price)) return { price: +j.price, src: "gold-api.com", at: j.updatedAt || "" };
+    } catch (e) { /* optional nicety */ }
+    try {
+      const j2 = await getJson("https://api.goldprice.dev/v1/spot/" + sym.spot, 10000);
+      if (j2 && isFinite(+j2.price)) return { price: +j2.price, src: "goldprice.dev", at: j2.updated_at || "" };
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  /* ---------------- TSETMC (بورس تهران، بدون کلید) ----------------
+     مستقیم از cdn.tsetmc.com (کامل‌ترین حالت از IP ایران) و در صورت بسته بودن،
+     از سه رله‌ی رایگان CORS عبور می‌کنیم. */
+  async function tseGet(path, ms) {
+    let lastErr;
+    for (const wrap of RELAY) {
+      const u = wrap("https://cdn.tsetmc.com/api/" + path);
+      try { const j = await getJson(u, ms || 9000); if (j && typeof j === "object") return j; }
+      catch (e) { lastErr = e; }
+    }
+    throw new Error("TSETMC پاسخ نداد. این سرویس فقط از IP ایران باز می‌شود؛ از بیرون ایران تایم‌فریم/کندل بورس تهران لازم است از VPN ایران یا فایل CSV بارگذاری شود (" + (lastErr && lastErr.message ? lastErr.message : "بدون پاسخ") + ")");
+  }
   async function tseSearch(term) {
-    let j;
-    try { j = await getJson(`https://cdn.tsetmc.com/api/Instrument/GetInstrumentSearch/${encodeURIComponent(term)}`, 12000, { "User-Agent": "Mozilla/5.0" }); }
-    catch (e) { throw new Error("دسترسی به TSETMC برقرار نشد (" + e.message + "). این API فقط از داخل ایران باز می‌شود؛ برای دسترسی از خارج، کلید Twelve Data نگیرید و نمادهای بورس تهران را در محیط داخل ایران باز کنید."); }
-    const rows = j.instrumentSearch || j["instrumentSearch"] || [];
+    const j = await tseGet("Instrument/GetInstrumentSearch/" + encodeURIComponent(term), 9000);
+    const rows = j.instrumentSearch || [];
     return rows.map((r) => ({ insCode: String(r.insCode), name: r.lVal30 || r.lVal18AFC || "", ticker: r.lVal18AFC || "" }));
   }
-  async function fromTsetmc(insCode, limit) {
-    let j;
-    try {
-      j = await getJson(`https://cdn.tsetmc.com/api/ClosingPrice/GetClosingPriceDailyList/${insCode}/${Math.min(limit, 500)}`, 15000, { "User-Agent": "Mozilla/5.0" });
-    } catch (e) { throw new Error("دریافت سابقه‌ی نماد از TSETMC ممکن نشد (" + e.message + "). این API فقط از داخل ایران در دسترس است."); }
-    const rows = j.closingPriceDaily || [];
-    if (!rows.length) throw new Error("TSETMC: سابقه‌ای برای این نماد پیدا نشد.");
+  function parseTsetmc(j) {
+    const rows = (j && j.closingPriceDaily) || [];
     return rows.map((r) => ({
       t: Math.floor(Date.parse(String(r.dEven).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3") + "T00:00:00Z") / 1000),
-      o: +r.pOpening, h: +r.priceMax, l: +r.priceMin, c: +r.pClosing, v: +(r.qTotTran || 0),
-    }));
+      o: num(r.pOpening), h: num(r.priceMax), l: num(r.priceMin), c: num(r.pClosing), v: +(r.qTotTran || 0),
+    })).filter((x) => isFinite(x.t) && isFinite(x.c) && x.c > 0 && isFinite(x.o) && x.o > 0).sort((a, b) => a.t - b.t);
+  }
+  async function fromTsetmc(insCode, limit) {
+    const j = await tseGet("ClosingPrice/GetClosingPriceDailyList/" + insCode + "/" + Math.min(limit, 500), 10000);
+    const c = parseTsetmc(j);
+    if (!c.length) throw new Error("TSETMC: سابقه‌ای برای این نماد پیدا نشد");
+    return c;
   }
 
-  /* ---------- CSV ---------- */
+  /* ---------------- CSV ---------------- */
   function parseCsv(text) {
-    const lines = text.trim().split(/\r?\n/).filter(Boolean), out = [];
+    const lines = String(text).trim().split(/\r?\n/).filter(Boolean), out = [];
     for (const ln of lines) {
       const p = ln.split(/[,;\t]/).map((s) => s.trim());
       if (p.length < 5 || isNaN(+p[1])) continue;
@@ -158,45 +248,79 @@
     return out.sort((a, b) => a.t - b.t);
   }
 
-  /* ---------- main entry ---------- */
+  /* ---------------- timeframe feasibility ----------------
+     Free sources for FX / metals / indices / oil only publish daily candles.
+     Asking them for 5m used to silently return daily data; now we switch the
+     timeframe to 1D and tell the user why. */
+  function resolveTimeframe(sym, tf, keys) {
+    const hasKey = !!(keys && keys.twelve);
+    if (!sym || tf.id === "1d" || sym.bn || sym.tse || hasKey) return { tf, changed: false };
+    const d1 = TIMEFRAMES.find((t) => t.id === "1d") || tf;
+    return { tf: d1, changed: true, reason: "منابع رایگان برای «" + sym.name + "» فقط کندل روزانه می‌دهند؛ تایم‌فریم به 1D تغییر کرد. برای تایم‌فریم‌های دقیق‌تر کلید رایگان Twelve Data را در تنظیمات وارد کنید." };
+  }
+
+  /* ---------------- main entry ---------------- */
   async function fetchCandles(sym, tf, keys, limit = 800) {
     const errors = [];
-    const tryTwelve = keys && keys.twelve;
-    // 1) Binance for crypto (and PAXG as gold proxy)
-    if (sym.bn && (sym.group === "کریپتو" || sym.id === "XAUUSD")) {
+    const tried = [];
+    const fail = (label, e) => { tried.push(label); errors.push(label + ": " + (e && e.message ? e.message : e)); };
+    const okRun = (c) => Array.isArray(c) && c.length >= 60;
+
+    // 1) Binance — crypto + gold (PAXG proxy)
+    if (sym.bn) {
       try {
-        const candles = await fromBinance(sym.bn, tf, limit);
-        return { candles, source: "Binance", note: sym.id === "XAUUSD" ? "از PAXG (طلای توکنیزه) به‌عنوان پروکسی طلا استفاده شد" : "" };
-      } catch (e) { errors.push(e.message); }
+        const c = await fromBinance(sym.bn, tf, limit);
+        if (okRun(c)) return { candles: c, source: "Binance", note: sym.bn === "PAXGUSDT" ? "طلای توکنیزه (PAXG) به‌عنوان پروکسی قیمت طلا" : "" };
+        fail("Binance", new Error("تنها " + c.length + " کندل"));
+      } catch (e) { fail("Binance", e); }
     }
-    // 2) TSETMC for بورس تهران
+    // 2) TSETMC — بورس تهران
     if (sym.tse) {
       try {
-        const code = sym.tse || (TSE_IDS[sym.id.replace("TSE-", "")] || "");
-        const candles = await fromTsetmc(code, limit);
-        return { candles, source: "TSETMC (بورس تهران)", note: "داده‌ی روزانه؛ فقط از داخل ایران در دسترس است." };
-      } catch (e) { errors.push(e.message); }
+        const c = await fromTsetmc(sym.tse, limit);
+        return { candles: c, source: "TSETMC (بورس تهران)", note: "داده‌ی روزانه؛ فقط از داخل ایران (یا با رله‌ی رایگان) در دسترس است." };
+      } catch (e) { fail("TSETMC", e); }
     }
-    // 3) Frankfurter for FX (free daily)
+    // 3) Frankfurter — FX daily (a full year+ of candles, not 40 days)
     if (sym.fx) {
-      try { const r = await fromFrankfurter(sym.fx, limit); return { candles: r.candles, source: "Frankfurter (رایگان)", note: r.note }; }
-      catch (e) { errors.push(e.message); }
+      try {
+        const r = await fromFrankfurter(sym.fx, limit);
+        if (okRun(r.candles)) return { candles: r.candles, source: "Frankfurter (رایگان)", note: r.note };
+        fail("Frankfurter", new Error("تنها " + r.candles.length + " کندل"));
+      } catch (e) { fail("Frankfurter", e); }
     }
-    // 4) CoinGecko for silver/platinum (free daily)
+    // 4) CoinGecko — silver / platinum daily
     if (sym.cg) {
-      try { const r = await fromCoinGecko(sym.cg, limit); return { candles: r.candles, source: "CoinGecko (رایگان)", note: r.note }; }
-      catch (e) { errors.push(e.message); }
+      try {
+        const c = await fromCoinGecko(sym.cg, limit, sym.cgScale);
+        if (okRun(c)) return { candles: c, source: "CoinGecko (رایگان)", note: (sym.cgNote ? sym.cgNote + " · " : "") + "داده‌ی روزانه‌ی رایگان" };
+        fail("CoinGecko", new Error("تنها " + c.length + " کندل"));
+      } catch (e) { fail("CoinGecko", e); }
     }
-    // 5) Twelve Data (needs key) — last resort
-    if (tryTwelve) {
-      try { return { candles: await fromTwelve(sym.td, tf, limit, keys.twelve), source: "Twelve Data", note: "" }; }
-      catch (e) { errors.push(e.message); }
+    // 5) Yahoo — metals, oil, indices, FX, crypto fallback
+    if (sym.yh) {
+      try {
+        const c = await fromYahoo(sym.yh, tf, limit);
+        if (okRun(c)) return { candles: c, source: "Yahoo Finance (" + sym.yh + ")", note: rangeForTf(tf.id).interval === "1d" ? "داده‌ی روزانه" : "" };
+        fail("Yahoo", new Error("تنها " + c.length + " کندل"));
+      } catch (e) { fail("Yahoo", e); }
     }
-    if (!tryTwelve && !sym.bn && !sym.fx && !sym.cg && !sym.tse) {
-      errors.push("برای این دارایی باید کلید رایگان Twelve Data را در تنظیمات وارد کنید (شاخص‌ها و نفت به داده‌ی دقیقه‌ای نیاز دارند).");
+    // 6) Twelve Data — only with the user's free key
+    if (keys && keys.twelve && sym.td) {
+      try {
+        const c = await fromTwelve(sym.td, tf, limit, keys.twelve);
+        if (okRun(c)) return { candles: c, source: "Twelve Data", note: "" };
+        fail("Twelve Data", new Error("تنها " + c.length + " کندل"));
+      } catch (e) { fail("Twelve Data", e); }
     }
+    if (!tried.length) errors.push("برای این دارایی هیچ منبع رایگانی تنظیم نشده است.");
+    else errors.push("راه‌حل: کلید رایگان Twelve Data را در تنظیمات وارد کنید یا تایم‌فریم را 1D بگذارید.");
     throw new Error(errors.join(" | "));
   }
 
-  FA.data = { SYMBOLS, TIMEFRAMES, TSE_IDS, fetchCandles, parseCsv, fromBinance, fromTwelve, fromFrankfurter, fromCoinGecko, fromTsetmc, tseSearch, getJson, sleep };
+  FA.data = {
+    SYMBOLS, TIMEFRAMES, TSE_IDS, fetchCandles, parseCsv, getJson, sleep, num, RELAY,
+    fromBinance, fromTwelve, fromFrankfurter, fromCoinGecko, fromYahoo, fromTsetmc, tseSearch, spotPrice,
+    parseBinance, parseTwelve, parseFrankfurter, parseCoinGecko, parseYahoo, parseTsetmc, rangeForTf, resolveTimeframe,
+  };
 })(typeof window !== "undefined" ? window : globalThis);

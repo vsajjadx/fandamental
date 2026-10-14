@@ -25,6 +25,8 @@ jobs:
           node-version: 20
       - name: Engine tests
         run: node tests/engine.test.js
+      - name: Data-layer tests
+        run: node tests/data.test.js
 
   deploy:
     needs: test

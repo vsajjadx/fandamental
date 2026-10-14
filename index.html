@@ -31,9 +31,14 @@
   <main class="layout">
     <aside class="watch card" id="watch" aria-label="لیست بازارها">
       <div class="tsesearch">
-        <input id="tseQuery" placeholder="افزودن سهم بورس تهران (مثلاً شپنا)" dir="rtl">
+        <input id="tseQuery" placeholder="افزودن سهم بورس تهران (شپنا، خودرو…)" dir="rtl">
         <button id="btnTseSearch" class="btn ghost">جستجو</button>
       </div>
+      <div class="tsesearch">
+        <input id="tseCode" placeholder="یا کد نماد (insCode)" dir="ltr">
+        <button id="btnTseAdd" class="btn ghost">افزودن</button>
+      </div>
+      <div id="watchList"></div>
     </aside>
 
     <section class="center">
@@ -109,9 +114,10 @@
         </div>
         <div id="fundBox" class="empty">بعد از هر «تحلیل کن»، تحلیل فاندامنتال خودکار اجرا می‌شود؛ نتیجه‌ی آن به‌عنوان سومین لایه وارد امتیاز هم‌سویی می‌شود.</div>
         <h4>خبرهای روز این نماد (GDELT — رایگان)</h4>
+        <div class="row"><button id="btnRefreshNews" class="btn ghost">به‌روزرسانی اخبار</button><span class="hint">منابع رایگان: GDELT و Yahoo — بدون کلید</span></div>
         <div id="newsList" class="empty">در حال دریافت…</div>
         <h4>رویدادهای پیش‌رو که روی این نماد اثر می‌گذارند (تقویم اقتصادی — رایگان)</h4>
-        <div id="calList" class="empty">در حال دریافت…</div>
+        <div id="calList" class="empty">در حال دریافت… (اگر شبکه کند باشد خودکار به پیام خطا/حافظه‌ی موقت می‌رسد)</div>
         <h4>اخبار این نماد (TradingView)</h4>
         <div id="tvNews" dir="ltr" class="tvbox"></div>
         <h4>تقویم اقتصادی (TradingView)</h4>

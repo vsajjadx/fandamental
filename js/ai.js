@@ -9,7 +9,7 @@
   const FA = (g.FA = g.FA || {});
 
   const PROVIDERS = {
-    gemini: { label: "Google Gemini (رایگان)", model: "gemini-2.0-flash", fallback: "gemini-1.5-flash", keyUrl: "https://aistudio.google.com/apikey", search: false, note: "برای گرفتن کلید رایگان وارد aistudio.google.com شوید. مدل‌های ۲.۵/۳ در ساعات شلوغ خطای «high demand» می‌دهند؛ این اپ به‌صورت خودکار دوباره تلاش می‌کند و در صورت لزوم مدل جایگزین را صدا می‌زند." },
+    gemini: { label: "Google Gemini (رایگان)", model: "gemini-2.5-flash", fallback: "gemini-2.0-flash", keyUrl: "https://aistudio.google.com/apikey", search: false, note: "برای گرفتن کلید رایگان وارد aistudio.google.com شوید. مدل‌های ۲.۵/۳ در ساعات شلوغ خطای «high demand» می‌دهند؛ این اپ به‌صورت خودکار دوباره تلاش می‌کند و در صورت لزوم مدل جایگزین را صدا می‌زند." },
     openrouter: { label: "OpenRouter (مدل‌های رایگان)", model: "meta-llama/llama-3.3-70b-instruct:free", fallback: "google/gemini-2.0-flash-exp:free", keyUrl: "https://openrouter.ai/keys", search: false, note: "کلید رایگان از openrouter.ai/keys. اگر مدل انتخابی پر بود، اپ خودکار به مدل جایگزین می‌رود." },
     anthropic: { label: "Anthropic Claude (پولی)", model: "claude-sonnet-4-20250514", fallback: "claude-3-5-haiku-20241022", keyUrl: "https://console.anthropic.com/settings/keys", search: true, note: "پولی است ولی جستجوی زنده‌ی وب دارد و دقیق‌ترین تحلیل خبری را می‌دهد." },
   };
@@ -132,6 +132,10 @@
     return (j.articles || []).map((a) => ({ title: a.title, src: a.domain, date: /^\d{8}/.test(a.seendate || "") ? `${a.seendate.slice(0, 4)}-${a.seendate.slice(4, 6)}-${a.seendate.slice(6, 8)}` : "" }));
   }
   async function getHeadlines(sym) {
+    if (FA.news && FA.news.assetNews) {
+      const r = await FA.news.assetNews(sym);
+      return (r.list || []).map((h) => ({ title: h.title, src: h.src || "—", date: h.ts ? new Date(h.ts * 1000).toISOString().slice(0, 10) : "" })).slice(0, 30);
+    }
     let rows = [];
     try { rows = await gdeltNews(newsQuery(sym), 25, "3d"); }
     catch (e) { rows = [{ title: "دریافت تیترهای زنده ممکن نشد (" + e.message + ") — تحلیل فقط بر اساس داده‌ی تکنیکال.", src: "—", date: "" }]; }
@@ -187,6 +191,7 @@
   ].join(" ");
   async function screener(keys, ctx, onProgress) {
     const prov = keys.provider || "gemini", native = PROVIDERS[prov].search;
+    let heads = [];   // declared here: it is used in sourceNote on both branches
     const rows = ctx.markets.map((m) => `${m.name} (${m.id}): price ${m.price}, trend ${m.direction}, confluence ${m.confluence}, tech ${m.tech.toFixed(2)}, price-action ${m.pa.toFixed(2)}${m.fund ? `, fundamental ${m.fund.bias} (${Math.round(m.fund.confidence)}%)` : ""}${m.alert ? `, EARLY-SIGNAL: ${m.alert}` : ""}`);
     let system, user;
     if (native) {
@@ -201,7 +206,7 @@
       user = "Macro headlines (newest first):\n" + (heads.length ? heads.map((h) => `- [${h.date}] ${h.title} (${h.src})`).join("\n") : "(none)") + "\n\nMarket scan:\n" + rows.join("\n") + "\nRank the top entries (best first; side none for ones to skip).";
     }
     const out = parseJson(await complete(keys, { system, messages: [{ role: "user", content: user }], maxTokens: 2500, search: native, onProgress }));
-    out.sourceNote = native ? "جستجوی زنده‌ی وب (Claude) + موتور تکنیکال" : `موتور تکنیکال روی ${ctx.markets.length} بازار + ${heads ? heads.length : 0} تیتر GDELT`;
+    out.sourceNote = native ? "جستجوی زنده‌ی وب (Claude) + موتور تکنیکال" : `موتور تکنیکال روی ${ctx.markets.length} بازار + ${heads.length} تیتر خبری`;
     return out;
   }
 

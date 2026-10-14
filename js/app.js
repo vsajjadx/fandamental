@@ -4,6 +4,8 @@
   const FA = window.FA, D = FA.data, ok = FA.ind.ok;
   const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+  // every handler is bound through this guard: a single missing node must never abort boot()
+  const on = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev, fn); };
   const load = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } };
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage blocked */ } };
   const fmt = (x, ref) => FA.signal.fmt(x, ref);
@@ -19,8 +21,9 @@
     journal: load("fa_journal", []), chat: [], img: null, busy: false, timer: null,
     dirty: { tv: true, overview: true, news: true }, centerTab: "analytic", rightTab: "signal", charts: null, calc: load("fa_calc", { bal: 1000, risk: 1 }),
     alarms: load("fa_alarms", []), lastSig: load("fa_lastSig", null), notifyOn: load("fa_notify", false),
-    scan: null, scanning: false, newsCache: {}, autoFundBusy: false,
+    scan: null, ranked: null, scanning: false, newsCache: {}, autoFundBusy: false, newsLoaded: false, spot: null, tse: [],
   };
+  const TSE_GROUP = "بورس تهران";
 
   /* ---------------- helpers ---------------- */
   function md(t) {
@@ -101,11 +104,17 @@
   /* ---------------- boot ---------------- */
   function init() {
     const groups = [...new Set(D.SYMBOLS.map((s) => s.group))];
+    // NOTE: #watchList is a separate node from the TSE search boxes, so re-rendering the
+    // list can never delete the inputs (this used to throw and kill the whole boot()).
     const renderWatch = () => {
-      $("#watch").innerHTML = groups.map((g) => `<h5>${esc(g)}</h5>` + D.SYMBOLS.filter((s) => s.group === g).map((s) => `<button data-sym="${esc(s.id)}" class="${s.id === S.sym.id ? "on" : ""}">${esc(s.name)}<span>${esc(s.id)}</span></button>`).join("")).join("");
+      const box = $("#watchList"); if (!box) return;
+      box.innerHTML = groups.filter((g) => D.SYMBOLS.some((s) => s.group === g)).map((g) => {
+        const rows = D.SYMBOLS.filter((s) => s.group === g);
+        const hint = g === TSE_GROUP ? '<div class="whint">هر سهم بورس تهران را از کادر بالا جستجو کنید (شپنا، خودرو، فولاد…) یا کد نماد را بچسبانید.</div>' : "";
+        return `<h5>${esc(g)} <em>${rows.length}</em></h5>` + hint + rows.map((s) => `<button data-sym="${esc(s.id)}" class="${s.id === S.sym.id ? "on" : ""}">${esc(s.name)}<span>${esc(s.short || s.id)}</span></button>`).join("");
+      }).join("");
     };
-    $("#symbol").innerHTML = groups.map((g) => `<optgroup label="${esc(g)}">${D.SYMBOLS.filter((s) => s.group === g).map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("")}</optgroup>`).join("");
-    $("#symbol").value = S.sym.id;
+    renderSymbolOptions();
     renderWatch();
     $("#tfs").innerHTML = D.TIMEFRAMES.map((t) => `<button data-tf="${t.id}" class="${t.id === S.tf.id ? "on" : ""}">${t.label}</button>`).join("");
     $$("[data-ov]").forEach((c) => (c.checked = !!S.ov[c.dataset.ov]));
@@ -144,19 +153,36 @@
       if (S.notifyOn) toast("آلارم مرورگر فعال شد.", "info");
     };
     $("#btnAlarmClear").onclick = () => { S.alarms = []; save("fa_alarms", S.alarms); renderAlarms(); };
-    $("#btnTseSearch").onclick = () => tseSearchFlow($("#tseQuery").value.trim());
-    $("#tseQuery").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); tseSearchFlow($("#tseQuery").value.trim()); } };
-    $("#btnNotify").textContent = S.notifyOn ? "🔔 آلارم روشن" : "🔕 آلارم خاموش";
+    on("#btnTseSearch", "click", () => tseSearchFlow($("#tseQuery").value.trim()));
+    on("#tseQuery", "keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); tseSearchFlow($("#tseQuery").value.trim()); } });
+    on("#btnTseAdd", "click", () => tseAddByCode($("#tseCode").value.trim()));
+    on("#tseCode", "keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); tseAddByCode($("#tseCode").value.trim()); } });
+    on("#btnRefreshNews", "click", () => loadNews(true));
+    if ($("#btnNotify")) $("#btnNotify").textContent = S.notifyOn ? "🔔 آلارم روشن" : "🔕 آلارم خاموش";
 
     embed($("#tape"), "ticker-tape", {
       symbols: [["Gold", "OANDA:XAUUSD"], ["Silver", "OANDA:XAGUSD"], ["EURUSD", "OANDA:EURUSD"], ["GBPUSD", "OANDA:GBPUSD"], ["USDJPY", "OANDA:USDJPY"], ["DXY", "TVC:DXY"], ["BTC", "BINANCE:BTCUSDT"], ["ETH", "BINANCE:ETHUSDT"], ["S&P500", "FOREXCOM:SPXUSD"], ["Oil", "TVC:USOIL"]].map(([title, proName]) => ({ title, proName })),
       showSymbolLogo: true, colorTheme: "dark", isTransparent: true, displayMode: "adaptive", locale: "en",
     });
-    new ResizeObserver(() => resizeCharts()).observe($("#chartMain").parentElement);
+    if ($("#chartMain") && window.ResizeObserver) new ResizeObserver(() => resizeCharts()).observe($("#chartMain").parentElement);
     renderJournal(); renderAlarms(); updateFundHint();
     loadNews();
     run();
   }
+
+  function renderSymbolOptions() {
+    const groups = [...new Set(D.SYMBOLS.map((s) => s.group))];
+    const sel = $("#symbol"); if (!sel) return;
+    sel.innerHTML = groups.map((g) => `<optgroup label="${esc(g)}">` + D.SYMBOLS.filter((s) => s.group === g).map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("") + "</optgroup>").join("");
+    sel.value = S.sym.id;
+  }
+
+  function setTf(id) {
+    S.tf = D.TIMEFRAMES.find((t) => t.id === id) || S.tf; save("fa_tf", S.tf.id);
+    paintTf(); S.dirty.tv = true;
+    if (S.centerTab === "tv") renderTV(); run();
+  }
+  function paintTf() { $$("#tfs [data-tf]").forEach((b) => b.classList.toggle("on", b.dataset.tf === S.tf.id)); }
 
   function setSymbol(id) {
     S.sym = D.SYMBOLS.find((s) => s.id === id) || S.sym; save("fa_sym", S.sym.id);
@@ -165,11 +191,6 @@
     if (S.centerTab === "tv") renderTV(); if (S.rightTab === "fund") renderNews();
     loadNews();
     run();
-  }
-  function setTf(id) {
-    S.tf = D.TIMEFRAMES.find((t) => t.id === id) || S.tf; save("fa_tf", S.tf.id);
-    $$("#tfs [data-tf]").forEach((b) => b.classList.toggle("on", b.dataset.tf === S.tf.id)); S.dirty.tv = true;
-    if (S.centerTab === "tv") renderTV(); run();
   }
   function showCenter(tab) {
     S.centerTab = tab;
@@ -183,29 +204,44 @@
     S.rightTab = tab;
     $$("#rightTabs button").forEach((b) => b.classList.toggle("on", b.dataset.rt === tab));
     $$(".rpane").forEach((p) => p.classList.toggle("on", p.id === "r-" + tab));
-    if (tab === "fund" && S.dirty.news) renderNews();
-    if (tab === "best") { renderScan(); }
+    if (tab === "fund") { renderNews(); if (!S.newsLoaded) loadNews(); }
+    if (tab === "best") renderScan();
   }
 
   /* ---------------- TSETMC stock search (all Tehran symbols) ---------------- */
+  function addTseSymbol(rec) {
+    const id = "TSE-" + (rec.ticker || rec.name || rec.insCode);
+    let sym = D.SYMBOLS.find((s) => s.id === id);
+    if (!sym) {
+      sym = { id, name: rec.name || rec.ticker || rec.insCode, short: rec.ticker || rec.insCode, group: TSE_GROUP, tv: "", tse: String(rec.insCode), td: "", yh: "" };
+      D.SYMBOLS.push(sym);
+      renderSymbolOptions(); watchRender();
+    }
+    return sym.id;
+  }
+  const watchRender = () => { const box = $("#watchList"); if (!box) return; const sel = $("#symbol"); renderSymbolOptions(); if (sel) sel.value = S.sym.id; box.querySelectorAll("[data-sym]").forEach((b) => b.classList.toggle("on", b.dataset.sym === S.sym.id)); };
   async function tseSearchFlow(q) {
     if (!q) { toast("نام یا نماد سهام را بنویسید (مثلاً فولاد یا شپنا).", "info"); return; }
-    const btn = $("#btnTseSearch"); btn.disabled = true;
+    const btn = $("#btnTseSearch"); if (btn) btn.disabled = true;
     try {
       const rows = await D.tseSearch(q);
-      if (!rows.length) { toast("نمادی پیدا نشد.", "err"); return; }
-      const r = rows[0];
-      const id = "TSE-" + (r.ticker || r.name);
-      if (!D.SYMBOLS.some((s) => s.id === id)) {
-        D.SYMBOLS.push({ id, name: r.name || r.ticker, group: "بورس تهران", tv: "", tse: r.insCode, td: "" });
-        const groups2 = [...new Set(D.SYMBOLS.map((s) => s.group))];
-        $("#symbol").innerHTML = groups2.map((gr) => `<optgroup label="${esc(gr)}">${D.SYMBOLS.filter((s) => s.group === gr).map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("")}</optgroup>`).join("");
-        renderWatch();
+      if (!rows.length) {
+        if (/^\d{6,}$/.test(q)) { addTseSymbol({ insCode: q, name: "سهم " + q, ticker: q }); toast("نمادی با این کد نماد اضافه شد؛ اگر داده نیامد کد درست نیست.", "info"); setSymbol("TSE-" + q); return; }
+        toast("نمادی پیدا نشد.", "err"); return;
       }
+      const r = rows[0];
+      const id = addTseSymbol(r);
       setSymbol(id);
-      toast(`نماد «${esc(r.name || r.ticker)}» اضافه و بارگذاری شد. (بورس تهران فقط از IP ایران در دسترس است)`, "info");
+      toast(`نماد «${esc(r.name || r.ticker)}» اضافه و بارگذاری شد.`, "info");
     } catch (e) { toast(esc(e.message), "err"); }
-    finally { btn.disabled = false; }
+    finally { if (btn) btn.disabled = false; }
+  }
+  async function tseAddByCode(code) {
+    if (!code) { toast("کد نماد (insCode) را بچسبانید.", "info"); return; }
+    const c = code.replace(/[^\d]/g, "");
+    if (!c) { toast("کد نماد باید عددی باشد.", "err"); return; }
+    const id = addTseSymbol({ insCode: c, name: "سهم " + c, ticker: c });
+    setSymbol(id);
   }
 
   /* ---------------- TradingView widgets ---------------- */
@@ -238,8 +274,12 @@
   }
   function renderNews() {
     S.dirty.news = false;
-    if (S.sym.tv) embed($("#tvNews"), "timeline", { feedMode: "symbol", symbol: S.sym.tv, colorTheme: "dark", isTransparent: true, displayMode: "regular", width: "100%", height: 420, locale: "en" });
+    const nw = $("#tvNews");
+    if (S.sym.tv) { if (nw) embed(nw, "timeline", { feedMode: "symbol", symbol: S.sym.tv, colorTheme: "dark", isTransparent: true, displayMode: "regular", width: "100%", height: 420, locale: "en" }); }
+    else if (nw) nw.innerHTML = '<div class="hint">TradingView برای بورس تهران خبر پوشش نمی‌دهد؛ از فهرست بالای همین صفحه استفاده کنید و در صورت نیاز «به‌روزرسانی اخبار» را بزنید.</div>';
     embed($("#tvCal"), "events", { colorTheme: "dark", isTransparent: true, width: "100%", height: 420, locale: "en", importanceFilter: "-1,0,1", currencyFilter: "USD,EUR,GBP,JPY,CHF,AUD,CAD,NZD,CNY" });
+    const listEl = $("#newsList");
+    if (listEl && /در حال دریافت/.test(listEl.textContent || "")) listEl.textContent = "برای دریافت اخبار، دکمه‌ی «به‌روزرسانی اخبار» را بزنید.";
   }
 
   /* ---------------- data + analysis ---------------- */
@@ -247,20 +287,29 @@
 
   async function run(opt) {
     if (S.busy) return;
-    S.busy = true; $("#btnRun").disabled = true;
+    S.busy = true; const btn = $("#btnRun"); if (btn) btn.disabled = true;
     try {
       if (!(opt && opt.keepCandles)) {
+        // free daily sources cannot serve 5m/15m/1h — switch to 1D instead of returning wrong data
+        const fit = D.resolveTimeframe(S.sym, S.tf, S.keys);
+        if (fit.changed) { S.tf = fit.tf; save("fa_tf", S.tf.id); paintTf(); }
         status(`در حال دریافت داده‌ی <b>${esc(S.sym.name)}</b>…`);
         const r = await D.fetchCandles(S.sym, S.tf, S.keys, 1000);
-        S.candles = dedupe(r.candles); S.source = r.source; S.note = r.note;
+        S.candles = dedupe(r.candles); S.source = r.source; S.note = (fit.changed ? fit.reason + " · " : "") + (r.note || "");
       }
+      if (!S.candles.length) throw new Error("کندلی دریافت نشد؛ منبع داده برای این نماد پاسخ نداد.");
       reanalyze();
-      const last = S.candles[S.candles.length - 1];
-      status(`<b>${esc(S.sym.name)}</b> · ${S.tf.label} · منبع: ${esc(S.source)} · ${S.candles.length} کندل · آخرین کندل: ${fmtTime(last.t)}${S.note ? " · " + esc(S.note) : ""}`);
+      S.spot = null; paintStatus();
+      if (S.sym.spot) D.spotPrice(S.sym).then((sp) => { if (sp) { S.spot = sp; paintStatus(); } }).catch(() => {});
       checkAlarms(S.res);
       autoFund();
     } catch (e) { status("خطا: " + esc(e.message), true); }
-    finally { S.busy = false; $("#btnRun").disabled = false; }
+    finally { S.busy = false; const b = $("#btnRun"); if (b) b.disabled = false; }
+  }
+  function paintStatus() {
+    const last = S.candles[S.candles.length - 1]; if (!last) return;
+    const sp = S.spot && isFinite(S.spot.price) ? ` · قیمت لحظه‌ای ${esc(S.sym.spot)}: <b>${S.spot.price}</b> (${esc(S.spot.src)})` : "";
+    status(`<b>${esc(S.sym.name)}</b> · ${S.tf.label} · منبع: ${esc(S.source)} · ${S.candles.length} کندل · آخرین کندل: ${fmtTime(last.t)}${sp}${S.note ? " · " + esc(S.note) : ""}`);
   }
   function reanalyze() {
     S.res = FA.signal.analyze(S.candles, { fund: S.fund, threshold: S.thr, early: true });
