@@ -606,10 +606,17 @@
   }
   function scanTable(rows, ranked) {
     const dirTxt = { long: "خرید", short: "فروش", none: "—" };
-    if (ranked && ranked.ranked) {
-      return `<div class="hint">رتبه‌بندی AI (بهترین‌ها اول — سود بیشتر، ریسک کمتر):</div>` +
-        ranked.ranked.filter((x) => x.side !== "none").map((x) => `<div class="fcard imp-${x.risk_level === "low" ? "low" : x.risk_level === "medium" ? "medium" : "high"}"><b>#${x.rank} ${esc(x.name || x.symbol)} — ${x.side === "long" ? "خرید" : "فروش"} · ${esc({ excellent: "عالی", good: "خوب", weak: "ضعیف" }[x.entry_quality] || x.entry_quality || "")} · ریسک: ${esc({ low: "کم", medium: "متوسط", high: "زیاد" }[x.risk_level] || x.risk_level || "")}</b>${esc(x.potential || "")}${x.risk_note ? `<br><small>ریسک: ${esc(x.risk_note)}</small>` : ""}</div>`).join("") +
-        (ranked.summary ? `<p class="hint">${esc(ranked.summary)}</p>` : "") + `<h4>کل نتایج اسکن</h4>` + rawTable(rows);
+    if (ranked && ranked.ranked && ranked.ranked.length) {
+      const imp = (x) => (x.risk_level === "low" ? "low" : x.risk_level === "medium" ? "medium" : "high");
+      const cards = ranked.ranked.filter((x) => x.side !== "none").map((x) => `<div class="fcard imp-${imp(x)}"><b>#${x.rank} ${esc(x.name || x.symbol)} — ${x.side === "long" ? "خرید" : "فروش"} · ${esc({ excellent: "عالی", good: "خوب", weak: "ضعیف" }[x.entry_quality] || x.entry_quality || "")} · ریسک: ${esc({ low: "کم", medium: "متوسط", high: "زیاد" }[x.risk_level] || x.risk_level || "")}</b>${esc(x.potential || "")}${x.risk_note ? `<br><small>ریسک: ${esc(x.risk_note)}</small>` : ""}</div>`).join("");
+      const skip = ranked.ranked.filter((x) => x.side === "none").slice(0, 8);
+      const note = ranked.local
+        ? `<div class="hint">رتبه‌بندی AI انجام نشد${ranked.aiError ? " («" + esc(ranked.aiError) + "»)" : ""}؛ فهرست زیر را موتور تکنیکال به‌صورت محلی و با معیار «سود بالقوه ÷ ریسک» ساخته است.</div>`
+        : ranked.aiError ? `<div class="hint">${esc(ranked.aiError)}</div>` : "";
+      return note + `<div class="hint">${ranked.local ? "رتبه‌بندی محلی (بدون AI)" : "رتبه‌بندی AI"} — بهترین‌ها اول (سود بیشتر، ریسک کمتر)${ranked.batches ? " · " + ranked.batches + " دسته" : ""}${ranked.total ? " از " + ranked.total + " بازار" : ""}${ranked.sourceNote ? " · " + esc(ranked.sourceNote) : ""}</div>` + cards +
+        (ranked.summary ? `<p class="hint">${esc(ranked.summary)}</p>` : "") +
+        (skip.length ? `<h4>پیشنهاد می‌شود فعلاً معامله نشوند</h4>` + skip.map((x) => `<div class="fcard"><b>${esc(x.name || x.symbol)}</b>${esc(x.risk_note || x.potential || "")}</div>`).join("") : "") +
+        `<h4>کل نتایج اسکن</h4>` + rawTable(rows);
     }
     return rawTable(rows);
   }
@@ -624,15 +631,22 @@
   async function rankWithAI() {
     if (!requireKey()) return;
     if (!S.scan || !S.scan.length) { toast("اول «اسکن همه‌ی بازارها» را اجرا کنید.", "info"); return; }
-    const btn = $("#btnRankAI"); btn.disabled = true;
-    const box = $("#scanBox");
+    const btn = $("#btnRankAI"), btnScan = $("#btnScan"), box = $("#scanBox");
+    btn.disabled = true; if (btnScan) btnScan.disabled = true;
+    const t0 = Date.now(), secs = () => Math.round((Date.now() - t0) / 1000);
+    // a visible clock: the old version looked «فریز شده» during long backoff waits
+    const tick = setInterval(() => { if (box.className === "empty") box.textContent = "AI در حال رتبه‌بندی… " + secs() + " ثانیه (تلاش مجدد خودکار؛ صفحه بسته نشده)"; }, 1000);
     try {
-      box.className = "empty"; box.textContent = "AI در حال رتبه‌بندی… (اگر مدل شلوغ باشد خودکار تلاش مجدد می‌شود)";
-      const markets = S.scan.filter((r) => !r.error).map((r) => ({ id: r.sym.id, name: r.name, price: r.price, direction: r.direction, confluence: r.conf, tech: r.tech, pa: r.pa, fund: r.fund, alert: r.alert }));
-      S.ranked = await FA.ai.screener(S.keys, { markets }, (m) => { box.textContent = m; });
+      box.className = "empty"; box.textContent = "AI در حال رتبه‌بندی…";
+      const markets = S.scan.filter((r) => !r.error).map((r) => ({ id: r.sym.id, name: r.name, price: r.price, direction: r.direction, confluence: r.conf, tech: r.tech, pa: r.pa, atrPct: r.atrPct, rr: r.rr, fund: r.fund, alert: r.alert }));
+      S.ranked = await FA.ai.screener(S.keys, { markets }, (m) => { box.textContent = m + " (" + secs() + "s)"; });
       renderScan();
-    } catch (e) { box.className = "empty"; box.innerHTML = `<span class="loss">${esc(e.message)}</span>`; }
-    finally { btn.disabled = false; }
+      if (S.ranked && S.ranked.local) toast("AI پاسخ نداد؛ رتبه‌بندی محلی نمایش داده شد.", "info");
+    } catch (e) {
+      box.className = "empty";
+      box.innerHTML = `<span class="loss">${esc(e.message)}</span>${e.detail ? `<br><small class="hint">${esc(e.detail)}</small>` : ""}<br><small class="hint">راه‌حل‌ها: در ⚙ تنظیمات یک مدل دیگر انتخاب کنید، چند دقیقه بعد دوباره بزنید، یا اگر شبکه فیلتر است VPN روشن کنید. جدول خام تکنیکال با دکمه‌ی «اسکن همه‌ی بازارها» همیشه در دسترس است.</small>`;
+    }
+    finally { clearInterval(tick); btn.disabled = false; if (btnScan) btnScan.disabled = false; }
   }
 
   /* ---------------- backtest (profit/loss based) ---------------- */
