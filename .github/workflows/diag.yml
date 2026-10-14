@@ -1,0 +1,25 @@
+name: diag
+on:
+  push:
+    branches: [diag]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/diag.mjs
+      - name: Publish results
+        run: |
+          cd out
+          git init -q -b diag-results
+          git config user.name diag
+          git config user.email diag@example.com
+          git add -A
+          git commit -q -m "diag results"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" diag-results
