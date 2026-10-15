@@ -5,9 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <title>Fandamental — دستیار تحلیل بازار</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+      <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -180,9 +178,13 @@
         <input id="kKey" type="password" autocomplete="off" dir="ltr"></label>
       <label>مدل <small>(در صورت تغییر نام مدل‌ها می‌توانی دستی عوض کنی)</small>
         <input id="kModel" dir="ltr" autocomplete="off"></label>
+      <label id="kBaseRow" hidden>آدرس پایه‌ی سرویس <small>(فقط برای «سازگار با OpenAI»؛ مثلاً https://api.deepseek.com)</small>
+        <input id="kBase" dir="ltr" autocomplete="off" placeholder="https://api.deepseek.com"></label>
       <p class="hint" id="kProvNote"></p>
       <label>کلید Twelve Data <small>(اختیاری؛ رایگان؛ برای شاخص‌ها، نفت و تایم‌فریم‌های دقیقه‌ای فارکس/فلزات)</small>
         <input id="kTwelve" type="password" autocomplete="off" placeholder="twelvedata api key" dir="ltr"></label>
+      <label>رله‌ی شخصی CORS <small>(اختیاری؛ برای وقتی منابع داده در شبکه‌ی شما بسته‌اند؛ مثلاً https://my-relay.example.com/?url= )</small>
+        <input id="kRelay" dir="ltr" autocomplete="off" placeholder="https://.../?url="></label>
       <label>حداقل امتیاز هم‌سویی برای «سیگنال معتبر»
         <input id="kThr" type="number" min="40" max="95" step="5"></label>
       <p class="warn">کلیدها فقط در مرورگر همین دستگاه (localStorage) ذخیره می‌شوند. این اپ را با کلید خودتان روی سایت عمومی منتشر نکنید؛ هر بازدیدکننده می‌تواند آن را ببیند.</p>
@@ -194,7 +196,7 @@
     </form>
   </dialog>
 
-  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="vendor/lightweight-charts.standalone.production.js"></script>
   <script src="js/indicators.js"></script>
   <script src="js/priceaction.js"></script>
   <script src="js/signal.js"></script>
@@ -203,5 +205,9 @@
   <script src="js/backtest.js"></script>
   <script src="js/ai.js"></script>
   <script src="js/app.js"></script>
+  <script>
+    // offline-capable app shell (http/https only; silently skipped on file://)
+    if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  </script>
 </body>
 </html>

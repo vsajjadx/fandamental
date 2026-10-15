@@ -29,6 +29,8 @@ jobs:
         run: node tests/data.test.js
       - name: AI-layer tests
         run: node tests/ai.test.js
+      - name: Site self-containment (no CDN, all assets published)
+        run: node tests/site.test.js
 
   deploy:
     needs: test
@@ -42,7 +44,7 @@ jobs:
       - name: Collect static site
         run: |
           mkdir _site
-          cp -r index.html css js _site/
+          cp -r index.html sw.js css js vendor _site/
           touch _site/.nojekyll
       - uses: actions/configure-pages@v5
       # The artifact name is unique per attempt: a "Re-run" of the same workflow

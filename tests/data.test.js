@@ -52,5 +52,45 @@ check("5m stays for crypto (Binance intraday)", D.resolveTimeframe(s("BTCUSDT"),
 check("5m stays when a Twelve Data key exists", D.resolveTimeframe(s("XAGUSD"), TF("5m"), { twelve: "k" }).changed === false);
 check("1d never switches", D.resolveTimeframe(s("XAGUSD"), TF("1d"), {}).changed === false);
 
-console.log(fails ? "\n" + fails + " FAILED" : "\nALL PASSED");
-process.exit(fails ? 1 : 0);
+
+// --- hedged requests (filtered hosts hang instead of failing) ---
+const T = (ms, v, fail) => (sg) => new Promise((res, rej) => { const t = setTimeout(() => (fail ? rej(new Error(v)) : res(v)), ms); sg.addEventListener("abort", () => { clearTimeout(t); rej(new Error("aborted")); }, { once: true }); });
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+(async () => {
+  let t0 = Date.now(), r = await D.hedge([T(5000, "slow"), T(10, "fast")], 60);
+  check("hedge: a hanging first source does not block a working second one", r === "fast" && Date.now() - t0 < 1000, (Date.now() - t0) + "ms");
+  t0 = Date.now(); r = await D.hedge([T(5, "boom", true), T(20, "second")], 5000);
+  check("hedge: a FAILED first source starts the next one immediately (no gap wait)", r === "second" && Date.now() - t0 < 1000, (Date.now() - t0) + "ms");
+  let started2 = false;
+  r = await D.hedge([T(5, "first"), (sg) => { started2 = true; return T(5, "x")(sg); }], 300);
+  await sleepMs(350);
+  check("hedge: later sources are never started if the first answers fast", r === "first" && !started2);
+  let aborted = false;
+  r = await D.hedge([(sg) => new Promise((res) => setTimeout(() => res("win"), 20)), (sg) => new Promise((res, rej) => { sg.addEventListener("abort", () => { aborted = true; rej(new Error("a")); }); })], 5);
+  check("hedge: losers are aborted once a winner resolves", r === "win" && aborted);
+  let msg = ""; try { await D.hedge([T(1, "a", true), T(1, "b", true)], 5); } catch (e) { msg = e.message; }
+  check("hedge: all fail -> one error listing every reason", /a/.test(msg) && /b/.test(msg), msg);
+  msg = ""; try { await D.hedge([], 5); } catch (e) { msg = e.message; }
+  check("hedge: empty list rejects (never hangs)", !!msg);
+
+  // --- Nobitex / Wallex UDF parser ---
+  const udf = D.parseUdf({ s: "ok", t: [300, 100, 200], o: ["10", "11", "12"], h: ["12", "13", "14"], l: ["9", "10", "11"], c: ["11", "12", "13"], v: ["1", "2", "3"] });
+  check("UDF parsed + sorted ascending + numeric strings", udf.length === 3 && udf[0].t === 100 && udf[2].t === 300 && udf[0].o === 11);
+  check("UDF high/low always bracket open/close", udf.every((x) => x.h >= Math.max(x.o, x.c) && x.l <= Math.min(x.o, x.c)));
+  check("UDF drops zero / null bars", D.parseUdf({ s: "ok", t: [1, 2], o: [1, null], h: [2, null], l: [1, null], c: [2, 0], v: [1, 1] }).length === 1);
+  let bad = 0; for (const j of [{ s: "no_data" }, { s: "error", errmsg: "x" }, null, {}]) { try { D.parseUdf(j); } catch (e) { bad++; } }
+  check("UDF rejects no_data / error / garbage (so the next source is tried)", bad === 4);
+  const uu = D.udfUrls("BTCUSDT", TF("1d"), 400);
+  check("UDF urls use the TradingView resolution + symbol", /nobitex\.ir/.test(uu.Nobitex) && /wallex\.ir/.test(uu.Wallex) && /resolution=D&/.test(uu.Nobitex) && /symbol=BTCUSDT/.test(uu.Wallex));
+
+  // --- personal relay setting ---
+  check("relay: valid template accepted", D.setRelay("https://r.example.dev/?url=") === "https://r.example.dev/?url=" && D.setRelay("https://r.example.dev/p/{url}").includes("{url}"));
+  check("relay: junk rejected", D.setRelay("not a url") === "" && D.setRelay("ftp://x/?u=") === "" && D.setRelay("https://r.example.dev/nohint") === "");
+  D.setRelay("https://r.example.dev/?url=");
+  check("relay: jsonTasks adds one relay fallback per url", D.jsonTasks(["https://a/x", "https://b/y"], 1000).length === 4);
+  D.setRelay("");
+  check("relay: nothing extra when unset", D.jsonTasks(["https://a/x", "https://b/y"], 1000).length === 2);
+
+  console.log(fails ? "\n" + fails + " FAILED" : "\nALL PASSED");
+  process.exit(fails ? 1 : 0);
+})();

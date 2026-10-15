@@ -94,6 +94,38 @@ async function main() {
     JSON.stringify(bodies[0] && bodies[0].generationConfig));
 }
 
+// 7) Iran: custom OpenAI-compatible provider (DeepSeek / AvalAI / GapGPT ...) + Gemini geo-block
+{
+  check("custom OpenAI-compatible provider exists and is selectable", !!FA.ai.PROVIDERS.custom && FA.ai.PROVIDERS.custom.custom === true);
+  let seen = null;
+  globalThis.fetch = async (url, opts) => {
+    if (isGdelt(url)) return ok({ articles: [] });
+    seen = { url, headers: opts.headers, body: JSON.parse(opts.body) };
+    return ok({ choices: [{ message: { content: JSON.stringify(GOOD_RANK) } }] });
+  };
+  await FA.ai.screener({ provider: "custom", custom: "SK", customBase: "https://api.avalai.ir/v1/" }, { markets: MARKETS }, () => {});
+  check("custom: POSTs to <base>/chat/completions (trailing slash handled)", seen.url === "https://api.avalai.ir/v1/chat/completions", seen.url);
+  check("custom: Bearer key + OpenAI body (model/messages/max_tokens)", seen.headers.authorization === "Bearer SK" && seen.body.model === "deepseek-chat" && Array.isArray(seen.body.messages) && seen.body.messages[0].role === "system" && seen.body.max_tokens >= 3000);
+  await FA.ai.screener({ provider: "custom", custom: "SK" }, { markets: MARKETS }, () => {});
+  check("custom: default base is api.deepseek.com", seen.url === "https://api.deepseek.com/chat/completions", seen.url);
+  let err = null;
+  try { await FA.ai.complete({ provider: "custom", custom: "SK", customBase: "http://insecure.example" }, { system: "s", messages: [{ role: "user", content: "x" }] }); } catch (e) { err = e; }
+  check("custom: non-https base is refused", !!err && /https/.test(err.message), err && err.message);
+  check("openrouter still goes to openrouter.ai", await (async () => { await FA.ai.screener({ provider: "openrouter", openrouter: "K" }, { markets: MARKETS }, () => {}); return /openrouter\.ai\/api\/v1\/chat\/completions$/.test(seen.url); })());
+
+  // Google answers Iranian IPs with FAILED_PRECONDITION: must not be retried 3x and must tell the user what to do
+  let calls = 0;
+  globalThis.fetch = async (url, opts) => {
+    if (isGdelt(url)) return ok({ articles: [] });
+    calls++;
+    return { ok: false, status: 400, headers: { get: () => null }, json: async () => ({ error: { code: 400, status: "FAILED_PRECONDITION", message: "User location is not supported for the API use." } }) };
+  };
+  err = null;
+  try { await FA.ai.complete({ provider: "gemini", gemini: "K" }, { system: "s", messages: [{ role: "user", content: "x" }] }); } catch (e) { err = e; }
+  check("geo-block: clear Persian message pointing to OpenRouter / OpenAI-compatible", !!err && /OpenRouter/.test(err.message) && /سازگار با OpenAI/.test(err.message), err && err.message.slice(0, 90));
+  check("geo-block: not retried (no wasted 3x attempts)", calls <= 2 && !!err && err.geo === true, "calls=" + calls);
+}
+
 console.log(fails ? "\n" + fails + " FAILED" : "\nALL PASSED");
 process.exit(fails ? 1 : 0);
 

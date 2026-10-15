@@ -1,6 +1,6 @@
 /* Fandamental — market catalog + OHLC providers (all free, browser-direct).
-   Chain per asset (first provider that answers wins):
-     Binance      — crypto + PAXG (gold proxy) · CORS open · no key · all timeframes
+   Chain per asset (first provider that answers wins; mirrors inside one step are HEDGED, not serial):
+     Binance + Nobitex + Wallex — crypto + PAXG (gold proxy) · Nobitex/Wallex are hosted in Iran (work without VPN)
      TSETMC       — بورس تهران · no key · daily · direct, then free CORS relays
      Frankfurter  — FX daily · CORS open · no key  → returns a FULL year+ of daily candles
      CoinGecko    — silver / platinum daily · CORS open · no key
@@ -78,15 +78,58 @@
      هر نماد دیگری با جستجوی زنده‌ی tseSearch اضافه می‌شود. */
 
   /* ---------------- tiny fetch helpers ---------------- */
-  async function getJson(url, ms = 15000, headers) {
+  async function getJson(url, ms = 15000, headers, signal) {
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
+    let ext = null;
+    if (signal) { if (signal.aborted) ctl.abort(); else { ext = () => ctl.abort(); signal.addEventListener("abort", ext, { once: true }); } }
     try {
       const r = await fetch(url, { signal: ctl.signal, headers: headers || {} });
       if (!r.ok) throw new Error("HTTP " + r.status);
       return await r.json();
     } catch (e) {
-      throw e && e.name === "AbortError" ? new Error("زمان انتظار تمام شد") : e;
-    } finally { clearTimeout(timer); }
+      throw e && e.name === "AbortError" ? new Error(signal && signal.aborted ? "لغو شد" : "زمان انتظار تمام شد") : e;
+    } finally { clearTimeout(timer); if (signal && ext) signal.removeEventListener("abort", ext); }
+  }
+
+  /* Hedged requests.  Behind filtering a blocked host usually HANGS instead of failing, so a plain
+     "try A, then B, then C" chain costs (timeout × hosts) before anything works.  Here the first
+     task starts at once; the next one starts after `gap` ms OR as soon as the previous one fails,
+     whichever is first; the first task that resolves wins and the rest are aborted.
+     Each task is (signal) => Promise. Rejects (with all reasons) only if every task failed. */
+  function hedge(fns, gap = 1200) {
+    const ctl = new AbortController(), started = [], errs = [], timers = [];
+    return new Promise((resolve, reject) => {
+      let failed = 0, finished = false;
+      const launch = (i) => {
+        if (i >= fns.length || started[i] || finished) return;
+        started[i] = true;
+        Promise.resolve().then(() => fns[i](ctl.signal)).then(
+          (v) => { if (finished) return; finished = true; timers.forEach(clearTimeout); ctl.abort(); resolve(v); },
+          (e) => {
+            if (finished) return;
+            errs.push(e && e.message ? e.message : String(e));
+            if (++failed === fns.length) { finished = true; timers.forEach(clearTimeout); reject(new Error(errs.join(" ؛ "))); }
+            else launch(i + 1);
+          });
+        if (i + 1 < fns.length) timers.push(setTimeout(() => launch(i + 1), gap));
+      };
+      if (!fns.length) { reject(new Error("هیچ منبعی تعریف نشده")); return; }
+      launch(0);
+    });
+  }
+  /* optional personal CORS relay (e.g. your own Cloudflare Worker / server) set in Settings.
+     Template: ".../?url=" (url appended, encoded) or ".../x/{url}". Used only as extra fallbacks. */
+  const cfg = { relay: "" };
+  function setRelay(t) {
+    t = String(t || "").trim();
+    cfg.relay = /^https?:\/\/\S+$/i.test(t) && (t.includes("{url}") || /[=?\/]$/.test(t)) ? t : "";
+    return cfg.relay;
+  }
+  const viaRelay = (u) => (cfg.relay.includes("{url}") ? cfg.relay.replace("{url}", encodeURIComponent(u)) : cfg.relay + encodeURIComponent(u));
+  function jsonTasks(urls, ms, parse) {
+    const all = urls.slice();
+    if (cfg.relay) urls.forEach((u) => all.push(viaRelay(u)));
+    return all.map((u) => (signal) => getJson(u, ms, undefined, signal).then(parse || ((x) => x)));
   }
   const RELAY = [
     (u) => u,
@@ -104,12 +147,37 @@
   }
   async function fromBinance(bn, tf, limit) {
     const q = "symbol=" + bn + "&interval=" + tf.bn + "&limit=" + Math.min(limit, 1000);
-    let rows, lastErr;
-    for (const host of ["https://data-api.binance.vision", "https://api.binance.com"]) {
-      try { rows = await getJson(host + "/api/v3/klines?" + q, 14000); break; } catch (e) { lastErr = e; }
-    }
-    if (!rows) throw new Error("Binance در دسترس نبود (" + (lastErr && lastErr.message) + ")");
-    return parseBinance(rows);
+    try {
+      return await hedge(jsonTasks(["https://data-api.binance.vision/api/v3/klines?" + q, "https://api.binance.com/api/v3/klines?" + q], 14000,
+        (rows) => { const c = parseBinance(rows); if (!c.length) throw new Error("پاسخ خالی"); return c; }), 1200);
+    } catch (e) { throw new Error("Binance در دسترس نبود (" + e.message + ")"); }
+  }
+
+  /* ---------------- Iranian crypto feeds (Nobitex / Wallex) ----------------
+     TradingView-UDF endpoints hosted inside Iran → reachable without VPN, no key. */
+  function parseUdf(j) {
+    if (!j || j.s !== "ok" || !Array.isArray(j.t) || !Array.isArray(j.c)) throw new Error("UDF: " + ((j && (j.s || j.errmsg)) || "پاسخ نامعتبر"));
+    const at = (a, i) => (Array.isArray(a) ? num(a[i]) : NaN);
+    return j.t.map((t, i) => ({ t: +t, o: at(j.o, i), h: at(j.h, i), l: at(j.l, i), c: at(j.c, i), v: at(j.v, i) || 0 }))
+      .filter((x) => isFinite(x.t) && isFinite(x.c) && x.c > 0 && isFinite(x.o) && x.o > 0)
+      .map((x) => ({ t: x.t, o: x.o, h: isFinite(x.h) ? Math.max(x.h, x.o, x.c) : Math.max(x.o, x.c), l: isFinite(x.l) ? Math.min(x.l, x.o, x.c) : Math.min(x.o, x.c), c: x.c, v: x.v }))
+      .sort((a, b) => a.t - b.t);
+  }
+  function udfUrls(bn, tf, limit) {
+    const to = Math.floor(Date.now() / 1000), from = to - Math.min(limit, 1000) * tf.sec;
+    const q = "?symbol=" + bn + "&resolution=" + tf.tv + "&from=" + from + "&to=" + to;
+    return { Nobitex: "https://api.nobitex.ir/market/udf/history" + q, Wallex: "https://api.wallex.ir/v1/udf/history" + q };
+  }
+  /* crypto / PAXG: Binance mirrors + Nobitex + Wallex, hedged — first valid answer wins */
+  async function fromCrypto(bn, tf, limit) {
+    const u = udfUrls(bn, tf, limit);
+    const tag = (name, fn) => (signal) => fn(signal).then((candles) => { if (!candles || candles.length < 60) throw new Error(name + ": تنها " + ((candles && candles.length) || 0) + " کندل"); return { candles, source: name }; });
+    const q = "symbol=" + bn + "&interval=" + tf.bn + "&limit=" + Math.min(limit, 1000);
+    const bin = (host) => tag("Binance", (sg) => getJson(host + "/api/v3/klines?" + q, 14000, undefined, sg).then(parseBinance));
+    const udf = (name) => tag(name, (sg) => getJson(u[name], 12000, undefined, sg).then(parseUdf));
+    const tasks = [bin("https://data-api.binance.vision"), udf("Nobitex"), udf("Wallex"), bin("https://api.binance.com")];
+    if (cfg.relay) tasks.push(tag("Binance", (sg) => getJson(viaRelay("https://data-api.binance.vision/api/v3/klines?" + q), 16000, undefined, sg).then(parseBinance)));
+    try { return await hedge(tasks, 1000); } catch (e) { throw new Error("کریپتو: هیچ منبعی پاسخ نداد (" + e.message + ")"); }
   }
 
   /* ---------------- Twelve Data (optional free key) ---------------- */
@@ -152,11 +220,10 @@
       "https://api.frankfurter.dev/v1/" + iso(from) + ".." + iso(to) + "?base=" + a + "&symbols=" + b,
       "https://api.frankfurter.app/" + iso(from) + ".." + iso(to) + "?base=" + a + "&symbols=" + b,
     ];
-    let lastErr, candles = null;
-    for (const u of urls) {
-      try { candles = parseFrankfurter(await getJson(u, 15000), a, b); if (candles.length >= 60) break; } catch (e) { lastErr = e; }
-    }
-    if (!candles || !candles.length) throw new Error("Frankfurter: " + (lastErr && lastErr.message ? lastErr.message : "سابقه‌ی خالی"));
+    let candles;
+    try {
+      candles = await hedge(jsonTasks(urls, 15000, (j) => { const c = parseFrankfurter(j, a, b); if (c.length < 60) throw new Error("تنها " + c.length + " کندل"); return c; }), 1500);
+    } catch (e) { throw new Error("Frankfurter: " + (e && e.message ? e.message : "سابقه‌ی خالی")); }
     return { candles: candles.slice(-Math.max(120, Math.min(limit, 1000))), note: "داده‌ی روزانه‌ی رایگان Frankfurter (بدون کندل دقیقه‌ای)؛ برای تایم‌فریم پایین‌تر کلید Twelve Data لازم است." };
   }
 
@@ -175,8 +242,8 @@
   }
   async function fromCoinGecko(cg, limit, scale) {
     const days = Math.max(90, Math.min(365, Math.ceil(limit / 2)));
-    const j = await getJson("https://api.coingecko.com/api/v3/coins/" + cg + "/market_chart?vs_currency=usd&days=" + days + "&interval=daily", 22000);
-    return parseCoinGecko(j, scale);
+    const url = "https://api.coingecko.com/api/v3/coins/" + cg + "/market_chart?vs_currency=usd&days=" + days + "&interval=daily";
+    return hedge(jsonTasks([url], 22000, (j) => parseCoinGecko(j, scale)), 1500);
   }
 
   /* ---------------- Yahoo Finance (metals / energy / indices / FX / crypto) ---------------- */
@@ -204,11 +271,9 @@
   async function fromYahoo(ySym, tf, limit) {
     const r = rangeForTf(tf.id);
     const q = "?interval=" + r.interval + "&range=" + r.range;
-    let j, lastErr;
-    for (const host of ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"]) {
-      try { j = await getJson(host + "/v8/finance/chart/" + encodeURIComponent(ySym) + q, 16000); break; } catch (e) { lastErr = e; }
-    }
-    if (!j) throw new Error("Yahoo پاسخ نداد (" + (lastErr && lastErr.message) + ")");
+    let j;
+    const urls = ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"].map((h) => h + "/v8/finance/chart/" + encodeURIComponent(ySym) + q);
+    try { j = await hedge(jsonTasks(urls, 16000, (x) => { parseYahoo(x); return x; }), 1500); } catch (e) { throw new Error("Yahoo پاسخ نداد (" + e.message + ")"); }
     return parseYahoo(j).slice(-Math.max(120, Math.min(limit, 1000)));
   }
 
@@ -216,13 +281,11 @@
   async function spotPrice(sym) {
     if (!sym || !sym.spot) return null;
     try {
-      const j = await getJson("https://api.gold-api.com/price/" + sym.spot, 10000);
-      if (j && isFinite(+j.price)) return { price: +j.price, src: "gold-api.com", at: j.updatedAt || "" };
+      return await hedge(jsonTasks(["https://api.gold-api.com/price/" + sym.spot, "https://api.goldprice.dev/v1/spot/" + sym.spot], 10000, (j) => {
+        if (!j || !isFinite(+j.price)) throw new Error("قیمت نامعتبر");
+        return { price: +j.price, src: j.updated_at !== undefined ? "goldprice.dev" : "gold-api.com", at: j.updatedAt || j.updated_at || "" };
+      }), 1500);
     } catch (e) { /* optional nicety */ }
-    try {
-      const j2 = await getJson("https://api.goldprice.dev/v1/spot/" + sym.spot, 10000);
-      if (j2 && isFinite(+j2.price)) return { price: +j2.price, src: "goldprice.dev", at: j2.updated_at || "" };
-    } catch (e) { /* ignore */ }
     return null;
   }
 
@@ -230,13 +293,11 @@
      مستقیم از cdn.tsetmc.com (کامل‌ترین حالت از IP ایران) و در صورت بسته بودن،
      از سه رله‌ی رایگان CORS عبور می‌کنیم. */
   async function tseGet(path, ms) {
-    let lastErr;
-    for (const wrap of RELAY) {
-      const u = wrap("https://cdn.tsetmc.com/api/" + path);
-      try { const j = await getJson(u, ms || 9000); if (j && typeof j === "object") return j; }
-      catch (e) { lastErr = e; }
-    }
-    throw new Error("TSETMC پاسخ نداد. این سرویس فقط از IP ایران باز می‌شود؛ از بیرون ایران تایم‌فریم/کندل بورس تهران لازم است از VPN ایران یا فایل CSV بارگذاری شود (" + (lastErr && lastErr.message ? lastErr.message : "بدون پاسخ") + ")");
+    const tasks = RELAY.map((wrap) => (signal) => getJson(wrap("https://cdn.tsetmc.com/api/" + path), ms || 9000, undefined, signal)
+      .then((j) => { if (!j || typeof j !== "object") throw new Error("پاسخ نامعتبر"); return j; }));
+    if (cfg.relay) tasks.push((signal) => getJson(viaRelay("https://cdn.tsetmc.com/api/" + path), ms || 9000, undefined, signal));
+    try { return await hedge(tasks, 2500); }
+    catch (e) { throw new Error("TSETMC پاسخ نداد. این سرویس معمولاً فقط از IP ایران باز می‌شود؛ از بیرون ایران رله‌ی شخصی (تنظیمات)، VPN ایران یا فایل CSV لازم است (" + (e && e.message ? e.message : "بدون پاسخ") + ")"); }
   }
   async function tseSearch(term) {
     const j = await tseGet("Instrument/GetInstrumentSearch/" + encodeURIComponent(term), 9000);
@@ -289,13 +350,12 @@
     const fail = (label, e) => { tried.push(label); errors.push(label + ": " + (e && e.message ? e.message : e)); };
     const okRun = (c) => Array.isArray(c) && c.length >= 60;
 
-    // 1) Binance — crypto + gold (PAXG proxy)
+    // 1) crypto + gold (PAXG proxy): Binance mirrors + Iranian feeds (Nobitex/Wallex), hedged
     if (sym.bn) {
       try {
-        const c = await fromBinance(sym.bn, tf, limit);
-        if (okRun(c)) return { candles: c, source: "Binance", note: sym.bn === "PAXGUSDT" ? "طلای توکنیزه (PAXG) به‌عنوان پروکسی قیمت طلا" : "" };
-        fail("Binance", new Error("تنها " + c.length + " کندل"));
-      } catch (e) { fail("Binance", e); }
+        const r = await fromCrypto(sym.bn, tf, limit);
+        return { candles: r.candles, source: r.source, note: sym.bn === "PAXGUSDT" ? "طلای توکنیزه (PAXG) به‌عنوان پروکسی قیمت طلا" : "" };
+      } catch (e) { fail("Crypto", e); }
     }
     // 2) TSETMC — بورس تهران
     if (sym.tse) {
@@ -342,7 +402,7 @@
   }
 
   FA.data = {
-    SYMBOLS, TIMEFRAMES, fetchCandles, parseCsv, getJson, sleep, num, RELAY,
+    SYMBOLS, TIMEFRAMES, fetchCandles, parseCsv, getJson, sleep, num, RELAY, hedge, setRelay, jsonTasks, fromCrypto, parseUdf, udfUrls,
     fromBinance, fromTwelve, fromFrankfurter, fromCoinGecko, fromYahoo, fromTsetmc, tseSearch, spotPrice,
     parseBinance, parseTwelve, parseFrankfurter, parseCoinGecko, parseYahoo, parseTsetmc, rangeForTf, resolveTimeframe,
   };

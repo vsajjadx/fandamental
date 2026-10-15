@@ -36,6 +36,13 @@
     const inner = document.createElement("div"); inner.className = "tradingview-widget-container__widget"; inner.style.cssText = "height:100%;width:100%";
     const sc = document.createElement("script"); sc.async = true; sc.src = `https://s3.tradingview.com/external-embedding/embed-widget-${name}.js`; sc.text = JSON.stringify(cfg);
     w.append(inner, sc); el.append(w);
+    /* TradingView's CDN is filtered/throttled on many Iranian networks: the script then never loads and
+       the box stays blank forever. After 9 s with no widget content, say so instead of showing nothing. */
+    const hint = document.createElement("div"); hint.className = "hint"; hint.hidden = true;
+    hint.textContent = "ویجت TradingView از این شبکه بارگذاری نشد (فیلتر/کندی). تحلیل و «چارت تحلیلی» اپ بدون آن کار می‌کنند.";
+    el.append(hint);
+    sc.addEventListener("error", () => { hint.hidden = false; });
+    setTimeout(() => { if (el.isConnected && !inner.querySelector("iframe") && !inner.children.length) hint.hidden = false; }, 9000);
   }
   const fmtTime = (t) => new Date(t * 1000).toLocaleString("fa-IR", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
   const fR = (x, d) => (ok(x) && isFinite(x) ? x.toFixed(d == null ? 2 : d) : "—");
@@ -722,23 +729,25 @@
     $("#kProv").value = p; $("#kKey").value = tmp[p] || ""; $("#kModel").value = (tmp.models && tmp.models[p]) || m.model;
     $("#kKeyHelp").innerHTML = `<a href="${m.keyUrl}" target="_blank" rel="noopener" style="color:var(--acc)">گرفتن کلید</a>`;
     $("#kProvNote").textContent = m.note || "";
+    $("#kBaseRow").hidden = !m.custom; $("#kBase").value = tmp.customBase || "";
   }
-  function stashProv() { tmp[curProv] = $("#kKey").value.trim(); tmp.models = Object.assign({}, tmp.models, { [curProv]: $("#kModel").value.trim() }); }
+  function stashProv() { tmp.customBase = $("#kBase").value.trim(); tmp[curProv] = $("#kKey").value.trim(); tmp.models = Object.assign({}, tmp.models, { [curProv]: $("#kModel").value.trim() }); }
   function openSettings() {
     tmp = JSON.parse(JSON.stringify(S.keys));
     $("#kProv").innerHTML = Object.entries(FA.ai.PROVIDERS).map(([id, m]) => `<option value="${id}">${esc(m.label)}</option>`).join("");
     $("#kProv").onchange = (e) => { stashProv(); fillProv(e.target.value); };
     fillProv(tmp.provider || "gemini");
-    $("#kTwelve").value = S.keys.twelve || ""; $("#kThr").value = S.thr;
+    $("#kTwelve").value = S.keys.twelve || ""; $("#kRelay").value = S.keys.relay || ""; $("#kThr").value = S.thr;
     $("#dlgSettings").showModal();
   }
   $("#dlgSettings").addEventListener("close", () => {
     if ($("#dlgSettings").returnValue !== "save") return;
-    stashProv(); tmp.provider = $("#kProv").value; tmp.twelve = $("#kTwelve").value.trim(); S.keys = tmp;
+    stashProv(); tmp.provider = $("#kProv").value; tmp.twelve = $("#kTwelve").value.trim(); tmp.relay = $("#kRelay").value.trim(); S.keys = tmp; FA.data.setRelay(S.keys.relay);
     S.thr = Math.max(40, Math.min(95, +$("#kThr").value || 70)); save("fa_keys", S.keys); save("fa_thr", S.thr); updateFundHint();
     if (S.candles.length) reanalyze();
   });
   $("#kClear").onclick = () => { S.keys = { provider: S.keys.provider || "gemini", models: {} }; save("fa_keys", S.keys); $("#kKey").value = $("#kTwelve").value = ""; tmp = JSON.parse(JSON.stringify(S.keys)); };
 
+  FA.data.setRelay(S.keys.relay);
   init();
 })();

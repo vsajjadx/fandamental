@@ -35,13 +35,19 @@
     openrouter: { label: "OpenRouter (مدل‌های رایگان)", model: "google/gemma-4-31b-it:free", fallback: "nvidia/nemotron-3-ultra-550b-a55b:free", latest: null, keyUrl: "https://openrouter.ai/keys", search: false, note: "کلید رایگان از openrouter.ai/keys. اگر مدل انتخابی پر بود، اپ خودکار به مدل جایگزین می‌رود." },
     anthropic: { label: "Anthropic Claude (پولی)", model: "claude-sonnet-4-20250514", fallback: "claude-3-5-haiku-20241022", latest: null, keyUrl: "https://console.anthropic.com/settings/keys", search: true, note: "پولی است ولی جستجوی زنده‌ی وب دارد و دقیق‌ترین تحلیل خبری را می‌دهد." },
   };
+  PROVIDERS.custom = {
+    label: "سازگار با OpenAI (DeepSeek / AvalAI / GapGPT / …) — مناسب ایران", model: "deepseek-chat", fallback: null, latest: null,
+    keyUrl: "https://platform.deepseek.com/api_keys", search: false, custom: true,
+    note: "هر سرویسی که API سازگار با OpenAI داشته باشد (/chat/completions). برای ایران بدون VPN: DeepSeek مستقیم (https://api.deepseek.com ، مدل deepseek-chat) یا درگاه‌های ایرانی مثل AvalAI (https://api.avalai.ir/v1) و GapGPT (https://api.gapgpt.app/v1) با پرداخت ریالی. «آدرس پایه» را همان‌طور که سرویس می‌دهد وارد کنید.",
+  };
+  const DEFAULT_BASE = "https://api.deepseek.com";
   const RETRYABLE = (st) => st === 0 || st === 408 || st === 425 || st === 429 || st === 500 || st === 502 || st === 503 || st === 504 || st === 529;
   /* shut-down ids (gemini-2.0-flash was turned off on 2026-06-01, 2.5 access is being
      withdrawn): a model id saved in localStorage by an older version is ignored. */
   const RETIRED = /gemini-(2\.0|2\.5)/;
   /* failures worth another attempt (not: bad key, blocked prompt, malformed request) */
   const SOFT = /high demand|overloaded|شلوغ|زمان مقرر|تلاش مجدد|پاسخ خالی|not found|not supported|unsupported|invalid model|does not exist|no such model|quota|rate limit|temporarily/i;
-  const isRetryable = (e) => !!(e && (RETRYABLE(e.status) || e.network || SOFT.test(String(e.message || ""))));
+  const isRetryable = (e) => !!(e && !e.geo && (RETRYABLE(e.status) || e.network || SOFT.test(String(e.message || ""))));
   const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, Math.min(ms, 120000))));
   const jitter = (ms) => Math.round(ms * (0.8 + Math.random() * 0.4));
   const DEFAULTS = { timeoutMs: 30000, retry: { attempts: 3, base: 900, cap: 15000 } };
@@ -76,6 +82,9 @@
     if (!parsed) m = "بدنه‌ی پاسخ خوانا نبود";
     m = m ? String(m).slice(0, 300) : "بدون توضیح";
     const s = r.status;
+    if (/location is not supported|FAILED_PRECONDITION/i.test(m) || (s === 403 && /country|region|territory|not available in your/i.test(m))) {
+      throw Object.assign(new Error("این سرویس AI از موقعیت (IP) شما در دسترس نیست — مثلاً Gemini و Claude برای ایران مسدودند. در تنظیمات سرویس را روی «OpenRouter» یا «سازگار با OpenAI (DeepSeek / AvalAI / GapGPT)» بگذارید. (" + m + ") · HTTP " + s), { status: s, geo: true });
+    }
     const msg = s === 429 ? "سهمیه یا نرخ درخواست پر شده است. (" + m + ") · HTTP 429"
       : s === 401 || s === 403 ? "کلید API نامعتبر است یا دسترسی ندارد. (" + m + ") · HTTP " + s
       : s === 503 || s === 529 || /overloaded|high demand/i.test(m) ? "مدل انتخابی الان شلوغ است؛ خودکار دوباره تلاش می‌شود… (" + m + ") · HTTP " + s
@@ -155,8 +164,15 @@
       }
       return text;
     }
-    if (prov === "openrouter") {
-      const j = await post("https://openrouter.ai/api/v1/chat/completions", { authorization: "Bearer " + key, "x-title": "Fandamental" }, {
+    if (prov === "openrouter" || prov === "custom") {
+      let url = "https://openrouter.ai/api/v1/chat/completions", hdr = { authorization: "Bearer " + key, "x-title": "Fandamental" };
+      if (prov === "custom") {
+        const base = String((opt && opt.base) || DEFAULT_BASE).trim().replace(/\/+$/, "");
+        if (!/^https:\/\/\S+$/i.test(base)) throw new Error("آدرس پایه‌ی سرویس سازگار با OpenAI معتبر نیست (باید با https:// شروع شود).");
+        url = (/\/chat\/completions$/.test(base) ? base : base + "/chat/completions"); hdr = { authorization: "Bearer " + key };
+      }
+      const label = prov === "custom" ? "سرویس AI" : "OpenRouter";
+      const j = await post(url, hdr, {
         model, max_tokens: Math.max(max, 3000),
         messages: [{ role: "system", content: o.system }].concat(o.messages.map((m) => ({
           role: m.role,
@@ -164,7 +180,7 @@
         }))),
       }, { timeoutMs: tmo });
       const text = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-      if (!text) throw Object.assign(new Error("پاسخ خالی از OpenRouter؛ با مدل جایگزین دوباره تلاش می‌شود…"), { status: 503 });
+      if (!text) throw Object.assign(new Error("پاسخ خالی از " + label + "؛ با مدل جایگزین دوباره تلاش می‌شود…"), { status: 503 });
       return String(text).trim();
     }
     // anthropic
@@ -203,7 +219,7 @@
         const model = models[mi];
         try {
           onProg(attempt === 0 && mi === 0 ? "اتصال به مدل…" : mi ? "مدل جایگزین («" + model + "»)…" : "تلاش مجدد…");
-          return await callProvider(prov, key, model, o, { timeoutMs });
+          return await callProvider(prov, key, model, o, { timeoutMs, base: keys.customBase });
         } catch (e) {
           lastErr = e;
           if (!isRetryable(e)) throw decorate(e, meta, models); // bad key / blocked prompt: don't waste time
@@ -285,6 +301,8 @@
   }
   let gdeltNext = 0; // GDELT allows ~1 request / 5s — queue calls so they never 429
   async function getJson(url, ms) {
+    const D = FA.data;
+    if (D && D.hedge && D.jsonTasks) return D.hedge(D.jsonTasks([url], ms || 12000), 1500); // direct + optional personal relay
     const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms || 12000);
     try { const r = await fetch(url, { signal: ctl.signal }); if (!r.ok) throw new Error("HTTP " + r.status); return await r.json(); } finally { clearTimeout(t); }
   }

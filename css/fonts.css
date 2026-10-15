@@ -1,0 +1,11 @@
+/* self-hosted fonts (Vazirmatn, JetBrains Mono — SIL OFL) — no Google Fonts request, works offline / behind filtering */
+@font-face{font-family:'Vazirmatn';font-style:normal;font-display:swap;font-weight:300;src:url(../vendor/fonts/vazirmatn-arabic-300-normal.woff2) format('woff2');}
+@font-face{font-family:'Vazirmatn';font-style:normal;font-display:swap;font-weight:400;src:url(../vendor/fonts/vazirmatn-arabic-400-normal.woff2) format('woff2');}
+@font-face{font-family:'Vazirmatn';font-style:normal;font-display:swap;font-weight:500;src:url(../vendor/fonts/vazirmatn-arabic-500-normal.woff2) format('woff2');}
+@font-face{font-family:'Vazirmatn';font-style:normal;font-display:swap;font-weight:700;src:url(../vendor/fonts/vazirmatn-arabic-700-normal.woff2) format('woff2');}
+@font-face{font-family:'Vazirmatn';font-style:normal;font-display:swap;font-weight:300;src:url(../vendor/fonts/vazirmatn-latin-300-normal.woff2) format('woff2');}
+@font-face{font-family:'Vazirmatn';font-style:normal;font-display:swap;font-weight:400;src:url(../vendor/fonts/vazirmatn-latin-400-normal.woff2) format('woff2');}
+@font-face{font-family:'Vazirmatn';font-style:normal;font-display:swap;font-weight:500;src:url(../vendor/fonts/vazirmatn-latin-500-normal.woff2) format('woff2');}
+@font-face{font-family:'Vazirmatn';font-style:normal;font-display:swap;font-weight:700;src:url(../vendor/fonts/vazirmatn-latin-700-normal.woff2) format('woff2');}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-display:swap;font-weight:400;src:url(../vendor/fonts/jetbrains-mono-latin-400-normal.woff2) format('woff2');}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-display:swap;font-weight:600;src:url(../vendor/fonts/jetbrains-mono-latin-600-normal.woff2) format('woff2');}
