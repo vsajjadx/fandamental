@@ -33,6 +33,8 @@ jobs:
         run: node tests/site.test.js
       - name: MT5 bridge (web side)
         run: node tests/mt5.test.js
+      - name: MT5 direct mode (no server) end to end with simulated EA
+        run: node tests/mt5_direct.test.js
 
   server-tests:
     runs-on: ubuntu-latest
