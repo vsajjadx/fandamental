@@ -1,0 +1,4 @@
+# Runtime (FastAPI is not required: the API is built directly on Starlette, which FastAPI itself uses)
+starlette>=0.37,<2
+pydantic>=2.5,<3
+uvicorn>=0.29

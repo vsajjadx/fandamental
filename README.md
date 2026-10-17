@@ -58,6 +58,7 @@ python3 -m http.server 8080     # داخل پوشه‌ی پروژه
 - **هم‌فکری AI**: گفتگو درباره‌ی تحلیل، ارسال اسکرین‌شات چارت، بررسی اشتباهات ژورنال
 - **بک‌تست**: اجرای walk-forward همین موتور روی کندل‌های واقعی برای دیدن دقت واقعی
 - **ژورنال**: ثبت معاملات، نرخ برد، میانگین R، خروجی JSON
+- **MT5**: ارسال همین سیگنال‌ها به متاتریدر ۵ (فقط نمایش / اجرا پس از تأیید / اجرای خودکار) با کنترل ریسک — نیاز به سرور پل (`server/`) و اکسپرت (`mt5/`). راهنمای کامل: [docs/MT5.md](docs/MT5.md)
 
 ## نکات مهم و صادقانه
 
@@ -78,12 +79,17 @@ js/signal.js       امتیازدهی، هم‌سویی، پلن معامله
 js/data.js         لیست نمادها + دریافت کندل (Binance / Twelve Data / CSV)
 js/backtest.js     بک‌تست walk-forward
 js/ai.js           سرویس‌های AI (Gemini / OpenRouter / Anthropic)، تیترهای GDELT، چت، تصویر
+js/mt5.js          تب MT5: ارسال سیگنال به سرور پل، مدیریت اتصال‌ها و گزارش سفارش‌ها
 js/app.js          رابط کاربری
-tests/engine.test.js
+server/            سرور پل MT5 (Python: Starlette + Pydantic + SQLite)
+mt5/FandamentalBridge.mq5   اکسپرت متاتریدر ۵
+docs/MT5.md        راهنمای راه‌اندازی، امنیت و تست اتصال MT5
+tests/*.test.js
 ```
 
 ```bash
-node tests/engine.test.js
+node tests/engine.test.js && node tests/mt5.test.js
+cd server && python3 -m unittest discover -s tests && python3 tests/e2e_ea_sim.py
 ```
 
 نام مدل‌ها در تنظیمات قابل تغییر است.

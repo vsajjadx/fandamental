@@ -148,3 +148,15 @@ dialog label { display: block; margin: 10px 0; font-size: 13px; } dialog label i
 .fcard a { color: inherit; text-decoration: none; }
 .fcard a:hover { color: var(--acc); }
 .fcard small { display: block; color: var(--mut); font-size: 11px; }
+
+/* ---- MT5 bridge tab ---- */
+.mt5bar { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line2); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#r-mt5 label { display: block; font-size: 12.5px; margin-top: 6px; } #r-mt5 label input, #r-mt5 label select { width: 100%; margin-top: 3px; }
+#r-mt5 label.hint { display: inline-flex; gap: 6px; align-items: center; } #r-mt5 label.hint input { width: auto; margin: 0; }
+.mt5set { margin: 8px 0; } .mt5set summary { cursor: pointer; color: var(--acc); font-size: 13px; }
+.mt5grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; } .mt5grid .wide { grid-column: 1 / -1; }
+.mt5acc { border: 1px solid var(--line2); border-radius: 12px; padding: 10px; margin: 8px 0; background: var(--panel2); } .mt5acc.off { opacity: .6; }
+.mt5head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } .mt5head .badge { margin-top: 0; }
+.mt5key code { display: block; margin: 6px 0; padding: 6px 8px; background: rgba(0,0,0,.3); border-radius: 8px; word-break: break-all; font-family: var(--mono); font-size: 12px; }
+.mt5ex td { font-size: 11.5px; vertical-align: top; } .mt5ex small { font-family: "Vazirmatn", sans-serif; direction: rtl; display: inline-block; }
+@media (max-width: 520px) { .mt5grid { grid-template-columns: 1fr; } }
