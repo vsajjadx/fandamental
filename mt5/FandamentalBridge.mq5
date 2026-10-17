@@ -1,7 +1,17 @@
 //+------------------------------------------------------------------+
 //|                                          FandamentalBridge.mq5   |
-//|  Receives signals produced by the Fandamental web app (through   |
-//|  the bridge API) and shows / executes them in MetaTrader 5.      |
+//|  Receives signals produced by the Fandamental web app and shows / |
+//|  executes them in MetaTrader 5.                                  |
+//|                                                                  |
+//|  Two ways to connect (input InpLink):                            |
+//|   DIRECT (default, no server): the web app (Chrome/Edge on the   |
+//|     SAME computer) writes into MT5's shared folder               |
+//|     ...\MetaQuotes\Terminal\Common\Files\FandamentalBridge:      |
+//|       config.json  web app -> EA (mode, risk, live switch)       |
+//|       inbox\<id>.json  signals for the EA                         |
+//|       status.json  EA -> web app (heartbeat, account)            |
+//|       outbox\<id>.json / <id>.close.json  results for the web app |
+//|   SERVER: through the bridge API in server/ (see below).         |
 //|                                                                  |
 //|  The analysis is NOT re-implemented here: this EA only moves the |
 //|  web app's signals into MT5 and enforces risk/safety checks.     |
@@ -14,14 +24,21 @@
 //|   POST /api/v1/ea/executions/{id}/closed   final P/L of position |
 //+------------------------------------------------------------------+
 #property copyright "Fandamental"
-#property version   "1.00"
+#property version   "1.10"
 #property description "Fandamental web app -> MT5 bridge. Default = display only; demo accounts first."
 
-#define EA_VERSION "1.00"
+#define EA_VERSION "1.10"
+
+enum ENUM_FA_LINK
+  {
+   LINK_FILES  = 0, // Direct: shared folder with the web app (no server)
+   LINK_SERVER = 1  // Through the bridge server (server/)
+  };
 
 //--- inputs
-input string InpServerUrl          = "https://your-server.example.com"; // Bridge API base URL (add it in Tools > Options > Expert Advisors > WebRequest)
-input string InpTerminalKey        = "";                 // Terminal key (fa_t_...) from the web app -> MT5 tab
+input ENUM_FA_LINK InpLink         = LINK_FILES;         // Connection type
+input string InpServerUrl          = "https://your-server.example.com"; // [server mode] Bridge API base URL (add it in Tools > Options > Expert Advisors > WebRequest)
+input string InpTerminalKey        = "";                 // [server mode] Terminal key (fa_t_...) from the web app -> MT5 tab
 input int    InpPollSeconds        = 3;                  // Poll interval, seconds
 input bool   InpExecutionEnabled   = true;               // Local kill-switch: false = never send orders (display only)
 input bool   InpAllowRealAccount   = false;              // Allow orders on a REAL account (also needs "live" enabled in the web app)
@@ -50,6 +67,19 @@ string   g_status = "starting";
 string   g_log[];
 string   g_qEid[], g_qBody[];          // persistent queue of reports not yet acknowledged
 string   QUEUE_FILE = "FandamentalBridge\\queue.txt";
+//--- direct (shared folder) mode: everything lives in Terminal\Common\Files\FandamentalBridge
+string   FB_DIR = "FandamentalBridge";
+string   g_liveLogin = "";
+bool     g_haveConfig = false;
+string   g_proc[];                     // execution ids already handled (persisted)
+string   g_posEid[], g_posTk[];        // filled positions to watch for the close report
+string   g_send[];                     // committed to send, result not written yet (crash recovery)
+datetime g_lastCleanup = 0, g_lastReconcile = 0;
+
+//--- prototypes (defined further down)
+void   ReadConfig(void);
+void   WatchAdd(string eid, string ticket);
+string LocalGo(string eid, double expiresIn);
 
 //+------------------------------------------------------------------+
 //| JSON writing helpers                                             |
@@ -341,11 +371,12 @@ void Panel(void)
   {
    string ok = g_lastOk > 0 ? TimeToString(g_lastOk, TIME_SECONDS) : "never";
    string t = "Fandamental Bridge v" + EA_VERSION + "\n";
-   t += "Server: " + g_status + "   (last OK " + ok + ")\n";
+   t += (InpLink == LINK_FILES ? "Link: shared folder  " : "Server: ") + g_status + "   (last OK " + ok + ")\n";
    t += "Account: " + AccountKind() + " #" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) +
         "   Mode: " + g_mode + (g_cfgEnabled ? "" : " (disabled in web app)") +
         "   Live: " + (g_live ? "ON" : "off") + "   EA orders: " + (InpExecutionEnabled ? "allowed" : "OFF") + "\n";
-   t += "Pending reports: " + IntegerToString(ArraySize(g_qEid)) + "\n";
+   if(InpLink == LINK_SERVER) t += "Pending reports: " + IntegerToString(ArraySize(g_qEid)) + "\n";
+   else t += "Folder: <Terminal>\\Common\\Files\\" + FB_DIR + "   open positions watched: " + IntegerToString(ArraySize(g_posEid)) + "\n";
    t += "----------------------------------------\n";
    for(int i = ArraySize(g_log) - 1; i >= 0; i--) t += g_log[i] + "\n";
    Comment(t);
@@ -494,8 +525,10 @@ void FlushQueue(void)
    if(changed) SaveQueue();
   }
 
+void WriteOutbox(string eid, string body);
 void QueueReport(string eid, string body)
   {
+   if(InpLink == LINK_FILES) { WriteOutbox(eid, body); return; }
    int n = ArraySize(g_qEid);
    ArrayResize(g_qEid, n + 1);
    ArrayResize(g_qBody, n + 1);
@@ -921,6 +954,15 @@ void Execute(string eid, string tag, JNode *sig, double expiresIn)
      }
    if(!FillAndCheck(req, why)) { QueueReport(eid, ReportBody("rejected", why, sym, req.price, 0, vol, req.sl, req.tp, "", 0, eid)); return; }
 
+   // --- direct mode: final local checks, then COMMIT locally (id written to disk) BEFORE sending -> never sent twice
+   if(InpLink == LINK_FILES)
+     {
+      string gw = LocalGo(eid, expiresIn);
+      if(gw == "duplicate") { Log("already handled " + eid + "; not sent again"); return; }   // never overwrite a real result
+      if(gw != "") { QueueReport(eid, ReportBody("rejected", gw, sym, req.price, 0, vol, req.sl, req.tp, "", 0, eid)); return; }
+     }
+   else
+     {
    // --- ask the server for the go (re-checks expiry / mode / live permission). No go -> no order.
    string rid = NewReportId(eid);
    string body = "{\"report_id\":" + JEsc(rid) + ",\"state\":\"sending\",\"broker_symbol\":" + JEsc(sym) + ",\"requested_price\":" + JNum(req.price) +
@@ -938,6 +980,7 @@ void Execute(string eid, string tag, JNode *sig, double expiresIn)
      {
       Log("no go for " + canon + " (" + (code == -1 ? err : ErrMsg(resp)) + ") - order NOT sent");
       return;
+     }
      }
 
    // --- send (requote / price-change retries are safe: the previous attempt was not executed)
@@ -975,6 +1018,7 @@ void Execute(string eid, string tag, JNode *sig, double expiresIn)
       string note = rc == TRADE_RETCODE_DONE_PARTIAL ? "partial fill" : "";
       if(fill > 0 && point > 0) note += (note == "" ? "" : "; ") + StringFormat("slippage %.0f pts", (buy ? fill - req.price : req.price - fill) / point);
       QueueReport(eid, ReportBody("filled", note, sym, req.price, fill, res.volume > 0 ? res.volume : vol, req.sl, req.tp, ticket, (int)rc, eid));
+      if(InpLink == LINK_FILES) WatchAdd(eid, ticket);
       Announce(StringFormat("%s %s %.2f lots filled @ %s (SL %s TP %s)", buy ? "BUY" : "SELL", sym, vol,
                             DoubleToString(fill, (int)SymbolInfoInteger(sym, SYMBOL_DIGITS)), DoubleToString(req.sl, (int)SymbolInfoInteger(sym, SYMBOL_DIGITS)),
                             DoubleToString(req.tp, (int)SymbolInfoInteger(sym, SYMBOL_DIGITS))));
@@ -1021,13 +1065,13 @@ string DealReasonName(long r)
    return "other";
   }
 
-void WatchClose(string eid, string ticket)
+bool WatchClose(string eid, string ticket)
   {
-   if(InQueue("close:" + eid)) return;
+   if(InQueue("close:" + eid)) return false;
    long pid = StringToInteger(ticket);
-   if(pid <= 0) return;
-   if(PositionSelectByTicket((ulong)pid)) return;           // still open
-   if(!HistorySelectByPosition(pid)) return;
+   if(pid <= 0) return false;
+   if(PositionSelectByTicket((ulong)pid)) return false;     // still open
+   if(!HistorySelectByPosition(pid)) return false;
    double profit = 0, closePx = 0;
    datetime closedAt = 0;
    long reason = -1;
@@ -1045,11 +1089,361 @@ void WatchClose(string eid, string ticket)
          if(t >= closedAt) { closedAt = t; closePx = HistoryDealGetDouble(d, DEAL_PRICE); reason = HistoryDealGetInteger(d, DEAL_REASON); }
         }
      }
-   if(!anyOut) return;   // history not loaded yet / position not found; try again later
+   if(!anyOut) return false;   // history not loaded yet / position not found; try again later
    string body = "{\"report_id\":" + JEsc(NewReportId(eid)) + ",\"close_price\":" + JNum(closePx) + ",\"profit\":" + JNum(profit, 2) +
                  ",\"closed_at\":" + IntegerToString((long)closedAt) + ",\"close_reason\":" + JEsc(DealReasonName(reason)) + "}";
    Log(StringFormat("position %s closed (%s), P/L %.2f", ticket, DealReasonName(reason), profit));
    QueueReport("close:" + eid, body);
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| Direct mode: shared folder (Common\Files) instead of a server    |
+//+------------------------------------------------------------------+
+string FbPath(string rel) { return FB_DIR + "\\" + rel; }
+
+bool ReadText(string path, string &out)
+  {
+   out = "";
+   if(!FileIsExist(path, FILE_COMMON)) return false;
+   int h = FileOpen(path, FILE_READ | FILE_BIN | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
+   if(h == INVALID_HANDLE) return false;
+   uchar buf[];
+   int n = (int)FileSize(h);
+   if(n > 0) FileReadArray(h, buf, 0, n);
+   FileClose(h);
+   out = n > 0 ? CharArrayToString(buf, 0, n, CP_UTF8) : "";
+   return true;
+  }
+
+// write to <path>.tmp then rename: the web app never sees a half-written file
+bool WriteTextAtomic(string path, string text)
+  {
+   string tmp = path + ".tmp";
+   int h = FileOpen(tmp, FILE_WRITE | FILE_BIN | FILE_COMMON);
+   if(h == INVALID_HANDLE) { Log("cannot write " + path + " (error " + IntegerToString(GetLastError()) + ")"); return false; }
+   uchar buf[];
+   int n = StringToCharArray(text, buf, 0, WHOLE_ARRAY, CP_UTF8);
+   if(n > 0) FileWriteArray(h, buf, 0, n - 1);
+   FileClose(h);
+   if(!FileMove(tmp, FILE_COMMON, path, FILE_COMMON | FILE_REWRITE))
+     {
+      Log("cannot rename " + tmp + " (error " + IntegerToString(GetLastError()) + ")");
+      return false;
+     }
+   return true;
+  }
+
+bool IsHexId(string s)
+  {
+   if(StringLen(s) != 16) return false;
+   for(int i = 0; i < 16; i++)
+     {
+      ushort c = StringGetCharacter(s, i);
+      if(!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+     }
+   return true;
+  }
+
+void SendingSave(void)
+  {
+   string t = "";
+   for(int i = 0; i < ArraySize(g_send); i++) t += g_send[i] + "\n";
+   WriteTextAtomic(FbPath("ea_sending.txt"), t);
+  }
+
+void SendingRemove(string eid)
+  {
+   int n = ArraySize(g_send);
+   for(int i = 0; i < n; i++)
+      if(g_send[i] == eid)
+        {
+         for(int j = i + 1; j < n; j++) g_send[j - 1] = g_send[j];
+         ArrayResize(g_send, n - 1);
+         SendingSave();
+         return;
+        }
+  }
+
+void WriteOutbox(string eid, string body)
+  {
+   bool isClose = StringFind(eid, "close:") == 0;
+   string id = isClose ? StringSubstr(eid, 6) : eid;
+   string doc = "{\"id\":" + JEsc(id) + ",\"time\":" + IntegerToString((long)TimeGMT()) + ",\"kind\":" + JEsc(isClose ? "close" : "result") +
+                ",\"login\":" + JEsc(IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN))) + ",\"report\":" + body + "}";
+   // an "unknown" outcome stays in the sending list so ReconcileLocal() keeps checking the broker
+   if(WriteTextAtomic(FbPath("outbox\\" + id + (isClose ? ".close.json" : ".json")), doc) && !isClose && StringFind(body, "\"state\":\"unknown\"") < 0)
+      SendingRemove(id);
+  }
+
+// --- processed ids (persisted; checked before every send)
+void LoadProcessed(void)
+  {
+   ArrayResize(g_proc, 0);
+   string t;
+   if(!ReadText(FbPath("ea_processed.txt"), t)) return;
+   string lines[];
+   int n = StringSplit(t, '\n', lines);
+   for(int i = 0; i < n; i++)
+     {
+      string l = lines[i];
+      StringTrimRight(l); StringTrimLeft(l);
+      if(IsHexId(l)) { int z = ArraySize(g_proc); ArrayResize(g_proc, z + 1); g_proc[z] = l; }
+     }
+  }
+
+bool IsProcessed(string eid)
+  {
+   for(int i = ArraySize(g_proc) - 1; i >= 0; i--) if(g_proc[i] == eid) return true;
+   return false;
+  }
+
+bool MarkProcessed(string eid)
+  {
+   if(IsProcessed(eid)) return true;
+   int z = ArraySize(g_proc);
+   if(z >= 1000)   // keep the newest 500
+     {
+      for(int i = 0; i < 500; i++) g_proc[i] = g_proc[z - 500 + i];
+      ArrayResize(g_proc, 500);
+      z = 500;
+     }
+   ArrayResize(g_proc, z + 1);
+   g_proc[z] = eid;
+   string t = "";
+   for(int i = 0; i <= z; i++) t += g_proc[i] + "\n";
+   return WriteTextAtomic(FbPath("ea_processed.txt"), t);
+  }
+
+// final checks right before OrderSend; "" = go. The id is committed to disk first.
+string LocalGo(string eid, double expiresIn)
+  {
+   ReadConfig();
+   if(!g_haveConfig) return "web app settings (config.json) not found";
+   if(!g_cfgEnabled) return "connection disabled in the web app";
+   if(g_mode == "notify") return "web app switched to display-only mode";
+   if(expiresIn <= 0) return "signal expired";
+   if(AccountKind() != "demo")
+     {
+      if(!g_live) return "real account: live trading is not enabled in the web app";
+      if(g_liveLogin != IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN))) return "real account: live trading was enabled for another account";
+      if(!InpAllowRealAccount) return "real account and AllowRealAccount=false";
+     }
+   if(IsProcessed(eid)) return "duplicate";
+   if(!MarkProcessed(eid)) return "cannot record the order id on disk; not sending";
+   int z = ArraySize(g_send);
+   ArrayResize(g_send, z + 1);
+   g_send[z] = eid;
+   SendingSave();   // if the terminal dies between here and the result, ReconcileLocal() checks the broker on restart
+   return "";
+  }
+
+// --- filled positions waiting for their close report
+void SaveWatch(void)
+  {
+   string t = "";
+   for(int i = 0; i < ArraySize(g_posEid); i++) t += g_posEid[i] + "\t" + g_posTk[i] + "\n";
+   WriteTextAtomic(FbPath("ea_positions.txt"), t);
+  }
+
+void LoadWatch(void)
+  {
+   ArrayResize(g_posEid, 0);
+   ArrayResize(g_posTk, 0);
+   string t;
+   if(!ReadText(FbPath("ea_positions.txt"), t)) return;
+   string lines[];
+   int n = StringSplit(t, '\n', lines);
+   for(int i = 0; i < n; i++)
+     {
+      int tab = StringFind(lines[i], "\t");
+      if(tab <= 0) continue;
+      string e = StringSubstr(lines[i], 0, tab), k = StringSubstr(lines[i], tab + 1);
+      StringTrimRight(k);
+      int z = ArraySize(g_posEid);
+      ArrayResize(g_posEid, z + 1); ArrayResize(g_posTk, z + 1);
+      g_posEid[z] = e; g_posTk[z] = k;
+     }
+  }
+
+void WatchAdd(string eid, string ticket)
+  {
+   if(ticket == "") return;
+   int z = ArraySize(g_posEid);
+   ArrayResize(g_posEid, z + 1); ArrayResize(g_posTk, z + 1);
+   g_posEid[z] = eid; g_posTk[z] = ticket;
+   SaveWatch();
+  }
+
+void WatchLocal(void)
+  {
+   bool changed = false;
+   for(int i = ArraySize(g_posEid) - 1; i >= 0; i--)
+      if(WatchClose(g_posEid[i], g_posTk[i]))
+        {
+         int n = ArraySize(g_posEid);
+         for(int j = i + 1; j < n; j++) { g_posEid[j - 1] = g_posEid[j]; g_posTk[j - 1] = g_posTk[j]; }
+         ArrayResize(g_posEid, n - 1); ArrayResize(g_posTk, n - 1);
+         changed = true;
+        }
+   if(changed) SaveWatch();
+  }
+
+// ids that were committed (about to send) but have no result file: the terminal stopped mid-send -> check the broker
+void ReconcileLocal(bool fromDisk)
+  {
+   g_lastReconcile = TimeLocal();
+   string t;
+   if(fromDisk && ReadText(FbPath("ea_sending.txt"), t))
+     {
+      string lines[];
+      int m = StringSplit(t, '\n', lines);
+      for(int i = 0; i < m; i++)
+        {
+         string l = lines[i];
+         StringTrimRight(l); StringTrimLeft(l);
+         if(IsHexId(l)) { int z = ArraySize(g_send); ArrayResize(g_send, z + 1); g_send[z] = l; }
+        }
+     }
+   if(ArraySize(g_send) == 0) return;
+   string todo[];
+   ArrayCopy(todo, g_send);
+   for(int i = 0; i < ArraySize(todo); i++)
+     {
+      string e = todo[i];
+      string tk;
+      int f = FindByTag("FA:" + e, tk);
+      string state = f == 1 ? "filled" : f == 2 ? "placed" : "failed";
+      string why = f == 0 ? "no order with this tag at the broker (send did not go through); not re-sent" :
+                   f == 3 ? "order found but it was cancelled/expired" : "found at broker during reconciliation";
+      Log("reconcile " + e + " -> " + state);
+      WriteOutbox(e, ReportBody(state, why, "", 0, 0, 0, 0, 0, tk, 0, e));
+      if(f == 1) WatchAdd(e, tk);
+     }
+  }
+
+void ReadConfig(void)
+  {
+   string t;
+   if(!ReadText(FbPath("config.json"), t)) { g_haveConfig = false; g_cfgEnabled = false; g_mode = "notify"; g_live = false; return; }
+   JParser P;
+   JNode *c = P.Parse(t);
+   if(c == NULL) { Log("config.json is not valid JSON; keeping previous settings"); return; }
+   ApplyConfig(c);
+   g_liveLogin = c.Str("live_login", "");
+   g_haveConfig = true;
+   delete c;
+  }
+
+void WriteStatus(void)
+  {
+   string body = "{\"time\":" + IntegerToString((long)TimeGMT()) + ",\"link\":\"files\"" +
+                 ",\"login\":" + JEsc(IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN))) +
+                 ",\"server\":" + JEsc(AccountInfoString(ACCOUNT_SERVER)) +
+                 ",\"company\":" + JEsc(AccountInfoString(ACCOUNT_COMPANY)) +
+                 ",\"trade_mode\":" + JEsc(AccountKind()) +
+                 ",\"currency\":" + JEsc(AccountInfoString(ACCOUNT_CURRENCY)) +
+                 ",\"balance\":" + JNum(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
+                 ",\"equity\":" + JNum(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
+                 ",\"connected_to_broker\":" + (TerminalInfoInteger(TERMINAL_CONNECTED) ? "true" : "false") +
+                 ",\"trade_allowed\":" + ((TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && MQLInfoInteger(MQL_TRADE_ALLOWED)) ? "true" : "false") +
+                 ",\"execution_enabled\":" + (InpExecutionEnabled ? "true" : "false") +
+                 ",\"ea_allow_real\":" + (InpAllowRealAccount ? "true" : "false") +
+                 ",\"ea_version\":" + JEsc(EA_VERSION) + ",\"poll_seconds\":" + IntegerToString(InpPollSeconds) + "}";
+   WriteTextAtomic(FbPath("status.json"), body);
+  }
+
+void PollFiles(void)
+  {
+   ReadConfig();
+   WriteStatus();
+   g_status = g_haveConfig ? (g_cfgEnabled ? "web app linked (shared folder)" : "disabled in the web app") : "waiting for the web app (no config.json yet)";
+   g_lastOk = TimeLocal();
+   if(!g_haveConfig || !g_cfgEnabled) { WatchLocal(); return; }
+
+   string names[];
+   string fn;
+   long hs = FileFindFirst(FbPath("inbox\\*.json"), fn, FILE_COMMON);
+   if(hs != INVALID_HANDLE)
+     {
+      do
+        {
+         int z = ArraySize(names);
+         if(z >= 20) break;
+         ArrayResize(names, z + 1);
+         names[z] = fn;
+        }
+      while(FileFindNext(hs, fn));
+      FileFindClose(hs);
+     }
+   for(int k = 0; k < ArraySize(names); k++)
+     {
+      string path = FbPath("inbox\\" + names[k]), txt;
+      if(!ReadText(path, txt)) continue;
+      JParser P;
+      JNode *it = P.Parse(txt);
+      string eid = it != NULL ? it.Str("execution_id") : "";
+      if(it == NULL || !IsHexId(eid) || names[k] != eid + ".json")
+        {
+         Log("ignoring malformed inbox file " + names[k]);
+         if(it != NULL) delete it;
+         FileDelete(path, FILE_COMMON);
+         continue;
+        }
+      if(IsProcessed(eid)) { delete it; FileDelete(path, FILE_COMMON); continue; }
+      string action = it.Str("action"), tag = "FA:" + eid;
+      JNode *sig = it.Get("signal");
+      double expiresIn = it.Num("expires_at", 0) - (double)TimeGMT();
+      if(sig == NULL)
+        {
+         WriteOutbox(eid, ReportBody("rejected", "signal data missing", "", 0, 0, 0, 0, 0, "", 0, eid));
+        }
+      else
+        {
+         string text = StringFormat("%s %s @ %s  SL %s  TP %s  [%s, confluence %s]", sig.Str("direction") == "buy" ? "BUY" : "SELL",
+                                    sig.Str("symbol"), sig.Str("entry"), sig.Str("sl"), sig.Str("tp"), sig.Str("timeframe"), sig.Str("confluence", "-"));
+         string sym, why;
+         if(expiresIn <= 0)
+            WriteOutbox(eid, ReportBody("expired", "signal expired before MT5 picked it up", "", 0, 0, 0, 0, 0, "", 0, eid));
+         else if(action == "notify" || g_mode == "notify")
+           {
+            bool okSym = ResolveSymbol(sig.Str("symbol"), sym, why);
+            Announce("signal: " + text + (okSym ? "" : "  (" + why + ")"));
+            if(okSym) DrawLevels(eid, sym, sig.Num("entry"), sig.Num("sl"), sig.Num("tp"));
+            WriteOutbox(eid, ReportBody("displayed", okSym ? "" : why, sym, 0, 0, 0, 0, 0, "", 0, eid));
+           }
+         else
+           {
+            Log("execute: " + text);
+            if(ResolveSymbol(sig.Str("symbol"), sym, why)) DrawLevels(eid, sym, sig.Num("entry"), sig.Num("sl"), sig.Num("tp"));
+            Execute(eid, tag, sig, expiresIn);
+           }
+        }
+      MarkProcessed(eid);
+      FileDelete(path, FILE_COMMON);
+      delete it;
+     }
+   WatchLocal();
+   if(TimeLocal() - g_lastReconcile >= 120) ReconcileLocal(false);   // "unknown" outcomes (broker timeout)
+   if(TimeLocal() - g_lastCleanup > 3600) CleanupOutbox();
+  }
+
+// result files older than 14 days are removed (the web app has already imported them)
+void CleanupOutbox(void)
+  {
+   g_lastCleanup = TimeLocal();
+   string fn;
+   long hs = FileFindFirst(FbPath("outbox\\*.json"), fn, FILE_COMMON);
+   if(hs == INVALID_HANDLE) return;
+   string old[];
+   do
+     {
+      long mt = FileGetInteger(FbPath("outbox\\" + fn), FILE_MODIFY_DATE, true);
+      if(mt > 0 && (long)TimeLocal() - mt > 14 * 86400) { int z = ArraySize(old); ArrayResize(old, z + 1); old[z] = fn; }
+     }
+   while(FileFindNext(hs, fn));
+   FileFindClose(hs);
+   for(int i = 0; i < ArraySize(old); i++) FileDelete(FbPath("outbox\\" + old[i]), FILE_COMMON);
   }
 
 //+------------------------------------------------------------------+
@@ -1153,15 +1547,29 @@ void Poll(void)
 int OnInit(void)
   {
    if(MQLInfoInteger(MQL_TESTER)) { Print("FandamentalBridge: WebRequest does not work in the Strategy Tester. Run it on a demo chart."); return INIT_FAILED; }
-   if(StringFind(InpTerminalKey, "fa_t_") != 0) { Alert("FandamentalBridge: set the terminal key (fa_t_...) from the web app's MT5 tab."); return INIT_PARAMETERS_INCORRECT; }
+   if(InpLink == LINK_SERVER && StringFind(InpTerminalKey, "fa_t_") != 0) { Alert("FandamentalBridge: set the terminal key (fa_t_...) from the web app's MT5 tab."); return INIT_PARAMETERS_INCORRECT; }
    string u = BaseUrl();
    bool local = StringFind(u, "http://127.0.0.1") == 0 || StringFind(u, "http://localhost") == 0;
-   if(StringFind(u, "https://") != 0 && !local) { Alert("FandamentalBridge: the server URL must start with https://"); return INIT_PARAMETERS_INCORRECT; }
+   if(InpLink == LINK_SERVER && StringFind(u, "https://") != 0 && !local) { Alert("FandamentalBridge: the server URL must start with https://"); return INIT_PARAMETERS_INCORRECT; }
    if(InpPollSeconds < 1) return INIT_PARAMETERS_INCORRECT;
    MathSrand((uint)GetTickCount());
    FolderCreate("FandamentalBridge");
-   LoadQueue();
-   if(ArraySize(g_qEid) > 0) Log(IntegerToString(ArraySize(g_qEid)) + " unsent report(s) restored from disk");
+   if(InpLink == LINK_FILES)
+     {
+      FolderCreate(FB_DIR, FILE_COMMON);
+      FolderCreate(FbPath("inbox"), FILE_COMMON);
+      FolderCreate(FbPath("outbox"), FILE_COMMON);
+      LoadProcessed();
+      LoadWatch();
+      ArrayResize(g_send, 0);
+      ReconcileLocal(true);
+      Log("direct mode: in the web app choose the folder <Terminal>\\Common\\Files (File > Open Data Folder, then up 2 levels > Common > Files)");
+     }
+   else
+     {
+      LoadQueue();
+      if(ArraySize(g_qEid) > 0) Log(IntegerToString(ArraySize(g_qEid)) + " unsent report(s) restored from disk");
+     }
    Log("started on " + AccountKind() + " account #" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
    if(AccountKind() != "demo") Log("REAL account: orders need AllowRealAccount=true here AND live trading enabled in the web app");
    g_ready = true;
@@ -1180,6 +1588,7 @@ void OnDeinit(const int reason)
 void OnTimer(void)
   {
    if(!g_ready) return;
+   if(InpLink == LINK_FILES) { PollFiles(); Panel(); return; }
    if(!g_bound || TimeLocal() - g_lastHeartbeat >= 15) Heartbeat();
    if(g_bound)
      {
