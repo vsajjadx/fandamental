@@ -1,0 +1,11 @@
+# Automatic HTTPS (Let's Encrypt) for the bridge API.
+# No Caddy access log on purpose: the API writes its own request log without any keys.
+{$FA_DOMAIN} {
+	encode gzip
+	reverse_proxy api:8787
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+}

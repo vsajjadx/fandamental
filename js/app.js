@@ -321,6 +321,8 @@
   function reanalyze() {
     S.res = FA.signal.analyze(S.candles, { fund: S.fund, threshold: S.thr, early: true });
     renderChart(); renderSignal(); renderInd(); renderTvPlan();
+    // hand the finished signal to optional add-ons (MT5 bridge in js/mt5.js); analysis itself is unchanged
+    try { window.dispatchEvent(new CustomEvent("fa:analysis", { detail: { res: S.res, sym: S.sym, tf: S.tf } })); } catch (e) { /* add-on errors never break analysis */ }
   }
 
   /* ---------------- chart ---------------- */

@@ -1,0 +1,24 @@
+# One-command deployment with automatic HTTPS:
+#   cp .env.example .env   (set FA_DOMAIN + FA_ALLOWED_ORIGINS)
+#   docker compose up -d --build
+#   docker compose exec api python -m app.cli create-user "your name"
+services:
+  api:
+    build: .
+    env_file: .env
+    volumes: ["data:/data"]
+    restart: unless-stopped
+    expose: ["8787"]
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      - FA_DOMAIN=${FA_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [api]
+volumes:
+  data:
+  caddy_data:
