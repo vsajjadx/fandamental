@@ -322,7 +322,7 @@
     S.res = FA.signal.analyze(S.candles, { fund: S.fund, threshold: S.thr, early: true });
     renderChart(); renderSignal(); renderInd(); renderTvPlan();
     // hand the finished signal to optional add-ons (MT5 bridge in js/mt5.js); analysis itself is unchanged
-    try { window.dispatchEvent(new CustomEvent("fa:analysis", { detail: { res: S.res, sym: S.sym, tf: S.tf } })); } catch (e) { /* add-on errors never break analysis */ }
+    try { window.dispatchEvent(new CustomEvent("fa:analysis", { detail: { res: S.res, sym: S.sym, tf: S.tf, source: S.source } })); } catch (e) { /* add-on errors never break analysis */ }
   }
 
   /* ---------------- chart ---------------- */
@@ -369,6 +369,7 @@
     const seenT = new Set();
     const mk = r.pa_data.patterns.filter((p) => p.dir !== 0 && p.i >= S.candles.length - 3 && !seenT.has(T[p.i]) && seenT.add(T[p.i])).map((p) => ({ time: T[p.i], position: p.dir === 1 ? "belowBar" : "aboveBar", color: p.dir === 1 ? "#2ebd85" : "#f6465d", shape: p.dir === 1 ? "arrowUp" : "arrowDown", text: p.name }));
     mk.sort((a, b) => a.time - b.time); if (mk.length) cs.setMarkers(mk);
+    try { if (FA.mtf && FA.mtf.overlay) FA.mtf.overlay(cs); } catch (e) { /* multi-timeframe overlay is optional */ }
 
     const rl = line(rsi, sr.rsi, "#b388ff", 2);
     [30, 70].forEach((v) => rl.createPriceLine({ price: v, color: "rgba(255,255,255,.25)", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "" }));
