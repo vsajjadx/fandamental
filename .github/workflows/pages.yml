@@ -31,6 +31,8 @@ jobs:
         run: node tests/ai.test.js
       - name: Site self-containment (no CDN, all assets published)
         run: node tests/site.test.js
+      - name: Multi-timeframe view
+        run: node tests/mtf.test.js
       - name: MT5 bridge (web side)
         run: node tests/mt5.test.js
       - name: MT5 direct mode (no server) end to end with simulated EA

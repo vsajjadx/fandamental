@@ -162,3 +162,27 @@ dialog label { display: block; margin: 10px 0; font-size: 13px; } dialog label i
 @media (max-width: 520px) { .mt5grid { grid-template-columns: 1fr; } }
 .mt5seg { display: flex; margin-bottom: 10px; } .mt5seg button { flex: 1; font-family: "Vazirmatn", sans-serif; font-size: 12.5px; }
 .mt5steps { margin: 6px 0; padding-inline-start: 20px; font-size: 12.5px; } .mt5steps li { margin: 4px 0; } .mt5steps code { direction: ltr; display: inline-block; }
+
+/* ---- multi-timeframe panel ---- */
+.mtfpanel { padding: 8px 14px 10px; border-bottom: 1px solid var(--line); }
+.mtf-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; } .mtf-head .btn { padding: 4px 10px; font-size: 12.5px; }
+.mtf-wrap { overflow-x: auto; margin-top: 6px; }
+table.mtf { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 640px; }
+table.mtf th { color: var(--mut); font-weight: 500; font-size: 11px; text-align: right; padding: 4px; }
+table.mtf td { padding: 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+table.mtf tr.cur > td { background: rgba(74,163,255,.06); }
+table.mtf .mono { font-family: var(--mono); direction: ltr; text-align: right; } table.mtf small { color: var(--mut); }
+table.mtf .up { color: var(--up); } table.mtf .dn { color: var(--dn); } table.mtf .pill { font-size: 11.5px; padding: 1px 9px; }
+table.mtf .badge { margin-top: 0; } .mtf-msg { font-size: 11.5px; }
+.mtf-tf { font-family: var(--mono); font-size: 12px; min-width: 46px; border: 1px solid var(--c); color: var(--c); background: transparent; border-radius: 8px; padding: 2px 8px; cursor: pointer; }
+.mtf-tf.on { background: var(--c); color: #0b0e14; font-weight: 700; }
+.mtf-more { padding: 2px 8px !important; font-size: 11.5px; }
+.mtf-key { font-family: var(--mono); font-size: 11px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--c); color: var(--c); margin-inline-start: 4px; }
+.mtf-card { border-inline-start: 3px solid var(--c); background: var(--panel2); border-radius: 10px; padding: 10px 12px; margin: 4px 0 8px; }
+.mtf-dh { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } .mtf-dh .badge { margin-top: 0; }
+.mtf-grid { display: grid; grid-template-columns: minmax(200px, 1fr) 1.3fr; gap: 14px; margin-top: 8px; }
+.mtf-kv div { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.mtf-kv span { color: var(--mut); } .mtf-kv .mono { font-family: var(--mono); direction: ltr; } .mtf-kv small { color: var(--mut); margin-inline-start: 2px; }
+.mtf-kv .up { color: var(--up); } .mtf-kv .dn { color: var(--dn); }
+.mtf-card h4 { margin: 10px 0 4px; font-size: 12.5px; }
+@media (max-width: 700px) { .mtf-grid { grid-template-columns: 1fr; } }
