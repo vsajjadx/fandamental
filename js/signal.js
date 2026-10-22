@@ -137,6 +137,13 @@
       addPA("fib", "فیبوناچی (اصلاح 38–62%)", inZone ? "قیمت داخل ناحیه‌ی طلایی" : "خارج از ناحیه", s, 0.8);
     }
     if (piv) addPA("pivot", "پیوت کلاسیک", `P=${f(piv.P)}`, price > piv.P ? 0.3 : -0.3, 0.5);
+    // setups (js/setups.js): always detected for display; they enter the score ONLY when opt.useSetups is on
+    let setups = null;
+    if (FA.setups && ok(A) && A > 0) {
+      try { setups = FA.setups.detect(c, { atr: A, sw, st, levels: lv, patterns: pats }); } catch (e) { setups = null; }
+      if (setups && opt.useSetups && setups.setups.length)
+        addPA("setups", "ستاپ‌های پرایس‌اکشن/اسمارت مانی", setups.setups.map((x) => x.name).join("، "), setups.score, 1.3);
+    }
     const pa = sumScore(paItems);
 
     /* ---------- fundamentals (optional, supplied by the AI module) ---------- */
@@ -202,7 +209,7 @@
 
     return {
       price, atr: A, direction, confluence, tradeable, threshold, score: S_all, signalType, timing,
-      tech, pa, fund, plan, warnings, items, paItems, buys, sells,
+      tech, pa, fund, plan, warnings, items, paItems, buys, sells, setups, usedSetups: !!(opt.useSetups && setups),
       pa_data: { sw, st, levels: lv, patterns: pats, fib, pivots: piv, sups, ress },
       series: S, count: n, lastTime: c[i].t,
     };
