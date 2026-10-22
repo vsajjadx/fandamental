@@ -29,6 +29,7 @@
       support: (res.pa_data && res.pa_data.sups && res.pa_data.sups[0]) ? res.pa_data.sups[0].price : null,
       resistance: (res.pa_data && res.pa_data.ress && res.pa_data.ress[0]) ? res.pa_data.ress[0].price : null,
       warnings: (res.warnings || []).slice(), lastTime: res.lastTime,
+      setups: res.setups && res.setups.setups ? res.setups.setups.map((s) => ({ name: s.name, dir: s.dir })) : [],
     };
   }
 
@@ -94,7 +95,7 @@
       if (token !== V.token) return;
       const c = dedupe(r.candles);
       if (c.length < 60) throw new Error("کندل کافی دریافت نشد (" + c.length + ")");
-      const res = FA.signal.analyze(c, { fund: V.fund, threshold: thr, early: true });
+      const res = FA.signal.analyze(c, { fund: V.fund, threshold: thr, early: true, useSetups: load("fa_use_setups", false) });
       Object.assign(row, { state: res.error ? "error" : "ok", res, sum: summarize(res), err: res.error || "", at: Date.now() / 1000, source: r.source, fund: V.fund, count: c.length });
     } catch (e) {
       if (token !== V.token) return;
@@ -197,6 +198,7 @@
           ${pats.length ? `<div><span>الگوهای کندلی اخیر</span><b>${pats.join("، ")}</b></div>` : ""}
         </div>
       </div>
+      ${s.setups && s.setups.length ? `<h4>ستاپ‌های فعال این تایم‌فریم</h4><ul class="reasons">${s.setups.map((x) => `<li><span class="${x.dir === 1 ? "up" : "dn"}">${x.dir === 1 ? "خرید" : "فروش"}</span> — ${esc(x.name)}</li>`).join("")}</ul>` : ""}
       ${sup.length ? `<h4>دلایل هم‌جهت</h4><ul class="reasons">${sup.map(li).join("")}</ul>` : ""}
       ${opp.length ? `<h4>نشانه‌های مخالف</h4><ul class="reasons">${opp.map(li).join("")}</ul>` : ""}
       ${s.warnings.length ? `<ul class="warns">${s.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}

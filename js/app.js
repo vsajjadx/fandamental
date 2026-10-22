@@ -15,7 +15,7 @@
   const S = {
     sym: D.SYMBOLS.find((s) => s.id === load("fa_sym", "BTCUSDT")) || D.SYMBOLS[0],
     tf: D.TIMEFRAMES.find((t) => t.id === load("fa_tf", "1h")) || D.TIMEFRAMES[2],
-    keys: Object.assign({ provider: "gemini", models: {} }, load("fa_keys", {})), thr: load("fa_thr", 70),
+    keys: Object.assign({ provider: "gemini", models: {} }, load("fa_keys", {})), thr: load("fa_thr", 70), useSetups: load("fa_use_setups", false),
     candles: [], res: null, fund: null, source: "", note: "",
     ov: load("fa_ov", { ema: true, bb: false, vwap: false, st: false, levels: true, plan: true }),
     journal: load("fa_journal", []), chat: [], img: null, busy: false, timer: null,
@@ -319,7 +319,7 @@
     status(`<b>${esc(S.sym.name)}</b> · ${S.tf.label} · منبع: ${esc(S.source)} · ${S.candles.length} کندل · آخرین کندل: ${fmtTime(last.t)}${sp}${S.note ? " · " + esc(S.note) : ""}`);
   }
   function reanalyze() {
-    S.res = FA.signal.analyze(S.candles, { fund: S.fund, threshold: S.thr, early: true });
+    S.res = FA.signal.analyze(S.candles, { fund: S.fund, threshold: S.thr, early: true, useSetups: S.useSetups });
     renderChart(); renderSignal(); renderInd(); renderTvPlan();
     // hand the finished signal to optional add-ons (MT5 bridge in js/mt5.js); analysis itself is unchanged
     try { window.dispatchEvent(new CustomEvent("fa:analysis", { detail: { res: S.res, sym: S.sym, tf: S.tf, source: S.source } })); } catch (e) { /* add-on errors never break analysis */ }
@@ -370,6 +370,7 @@
     const mk = r.pa_data.patterns.filter((p) => p.dir !== 0 && p.i >= S.candles.length - 3 && !seenT.has(T[p.i]) && seenT.add(T[p.i])).map((p) => ({ time: T[p.i], position: p.dir === 1 ? "belowBar" : "aboveBar", color: p.dir === 1 ? "#2ebd85" : "#f6465d", shape: p.dir === 1 ? "arrowUp" : "arrowDown", text: p.name }));
     mk.sort((a, b) => a.time - b.time); if (mk.length) cs.setMarkers(mk);
     try { if (FA.mtf && FA.mtf.overlay) FA.mtf.overlay(cs); } catch (e) { /* multi-timeframe overlay is optional */ }
+    try { if (FA.setupsUI) FA.setupsUI.draw(main, cs, r, S.candles); } catch (e) { /* setup drawings are optional */ }
 
     const rl = line(rsi, sr.rsi, "#b388ff", 2);
     [30, 70].forEach((v) => rl.createPriceLine({ price: v, color: "rgba(255,255,255,.25)", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "" }));
@@ -583,7 +584,7 @@
         if (k) await D.sleep(sym.tse ? 1500 : 120);
         const r = await D.fetchCandles(sym, S.tf, S.keys, 400);
         const c = dedupe(r.candles);
-        const a = FA.signal.analyze(c, { early: true, marketEntry: true, threshold: 0 });
+        const a = FA.signal.analyze(c, { early: true, marketEntry: true, threshold: 0, useSetups: S.useSetups });
         if (a.error) throw new Error(a.error);
         const atrPct = ok(a.atr) ? (100 * a.atr) / a.price : null;
         rows.push({
@@ -660,13 +661,42 @@
   }
 
   /* ---------------- backtest (profit/loss based) ---------------- */
+  /* «با ستاپ‌ها / بدون ستاپ‌ها» + performance of every setup on its own (js/setups.js) */
+  function setupsCompareHtml(off, on, per) {
+    const pct = (x) => (x == null ? "—" : x.toFixed(1) + "%"), num = (x) => (x == null ? "—" : x.toFixed(2));
+    const pf = (x) => (x == null ? "—" : x === Infinity ? "∞" : x.toFixed(2));
+    const row = (name, b, hl) => `<tr class="${hl ? "hl" : ""}"><td style="font-family:inherit">${name}</td><td>${b.count}</td><td>${pct(b.winRate)}</td><td>${pct(b.breakeven)}</td><td>${num(b.avgR)}</td><td class="${b.totalR > 0 ? "win" : b.totalR < 0 ? "loss" : ""}">${num(b.totalR)}</td><td>${pf(b.profitFactor)}</td><td>${num(b.maxDD)}</td></tr>`;
+    const thrRow = (r) => r.summary.find((b) => b.threshold === S.thr) || r.summary.find((b) => b.threshold === 70) || r.summary[0];
+    const a = thrRow(off), b = thrRow(on);
+    const better = b.count >= 10 && a.count >= 10 ? (b.totalR > a.totalR && (b.avgR || 0) >= (a.avgR || 0) ? "on" : a.totalR > b.totalR ? "off" : "") : "";
+    const verdict = better === "on" ? `<div class="note-early" style="border-color:var(--up);color:#bdebd8">روی این نماد/تایم‌فریم، لحاظ کردن ستاپ‌ها نتیجه را <b>بهتر</b> کرده است (هم‌سویی ≥ ${a.threshold}).</div>`
+      : better === "off" ? `<div class="note-early" style="border-color:var(--dn);color:#f3c2ca">روی این نماد/تایم‌فریم، لحاظ کردن ستاپ‌ها نتیجه را <b>بدتر</b> کرده است؛ آن را در ⚙ تنظیمات خاموش نگه دارید.</div>`
+      : `<div class="hint">تفاوت معنی‌داری دیده نشد یا تعداد معاملات کم است.</div>`;
+    const stats = (per && per.stats) || [];
+    return `<h4>مقایسه: موتور فعلی با و بدون ستاپ‌ها (هم‌سویی ≥ ${a.threshold})</h4>${verdict}
+      <table class="btable"><thead><tr><th>حالت</th><th>تعداد</th><th>نرخ برد</th><th>سر‌به‌سر</th><th>میانگین R</th><th>جمع R</th><th>فاکتور سود</th><th>بیشترین افت</th></tr></thead><tbody>
+      ${row("بدون ستاپ‌ها", a, !S.useSetups)}${row("با ستاپ‌ها", b, S.useSetups)}</tbody></table>
+      <div class="hint">ردیف پررنگ = حالت فعلی شما (⚙ تنظیمات ← «ستاپ‌ها در امتیاز هم‌سویی»).</div>
+      <h4>عملکرد هر ستاپ به‌تنهایی روی همین داده</h4>
+      ${stats.length ? `<table class="btable"><thead><tr><th>ستاپ</th><th>تعداد</th><th>نرخ برد</th><th>سر‌به‌سر</th><th>میانگین R</th><th>جمع R</th><th>فاکتور سود</th></tr></thead><tbody>
+      ${stats.map((s) => `<tr><td style="font-family:inherit;direction:rtl;text-align:right">${esc(s.name)}${s.count < 30 ? ' <small class="hint">(نمونه کم)</small>' : ""}</td><td>${s.count}</td><td>${pct(s.winRate)}</td><td>${pct(s.breakeven)}</td><td>${num(s.avgR)}</td><td class="${s.totalR > 0 ? "win" : s.totalR < 0 ? "loss" : ""}">${num(s.totalR)}</td><td>${pf(s.profitFactor)}</td></tr>`).join("")}</tbody></table>`
+      : '<div class="hint">در این بازه هیچ ستاپی فعال نشد.</div>'}
+      <div class="hint">هر ستاپ با حد ضرر و تارگت خودش، ورود در بسته شدن کندل سیگنال، حداکثر ۴۸ کندل. «سر‌به‌سر» = حداقل نرخ برد لازم برای سود با نسبت سود به زیان همان ستاپ. ستاپی با کمتر از ۳۰ معامله قابل اتکا نیست.</div>`;
+  }
+
   async function runBt() {
     const box = $("#btBox"), btn = $("#btnBt");
     if (S.candles.length < 300) { box.className = "empty"; box.textContent = "حداقل ۳۰۰ کندل لازم است."; return; }
     const early = $("#btEarly").checked;
     btn.disabled = true; box.className = "empty"; box.textContent = "در حال اجرا…";
     try {
-      const res = await FA.backtest.run(S.candles, { window: 300, horizon: 48, early, onProgress: (p) => ($("#btProg").textContent = Math.round(p * 100) + "%") });
+      const prog = (stage) => (p) => ($("#btProg").textContent = stage + " " + Math.round(p * 100) + "%");
+      const res = await FA.backtest.run(S.candles, { window: 300, horizon: 48, early, useSetups: S.useSetups, onProgress: prog(FA.setups ? "۱/۳" : "") });
+      let cmp = null, per = null;
+      if (FA.setups) {
+        cmp = await FA.backtest.run(S.candles, { window: 300, horizon: 48, early, useSetups: !S.useSetups, onProgress: prog("۲/۳") });
+        per = await FA.setups.backtest(S.candles, { window: 300, horizon: 48, onProgress: prog("۳/۳") });
+      }
       $("#btProg").textContent = ""; box.className = "";
       const pct = (x) => (x == null ? "—" : x.toFixed(1) + "%"), num = (x) => (x == null ? "—" : x.toFixed(2));
       const b0 = res.summary[0];
@@ -681,7 +711,8 @@
           <li>ستون «جمع R» = سود منهای ضررِ همه‌ی معاملات؛ مثبت یعنی سیستم روی این نماد سودده بوده است (بدون در نظر گرفتن جهت سیگنال خرید/فروش).</li>
           <li>«فاکتور سود» بالای ۱٫۳ و «بیشترین افت» کوچک، یعنی ریسک سیستم قابل‌تحمل است.</li>
           <li>اگر تعداد معاملات کمتر از ۳۰ است، نتیجه از نظر آماری قابل اتکا نیست.</li>
-          <li>این بک‌تست walk-forward است (موتور در هر لحظه فقط کندل‌های گذشته را می‌بیند)؛ کارمزد و اسلیپیج لحاظ نشده است.</li></ul>`;
+          <li>این بک‌تست walk-forward است (موتور در هر لحظه فقط کندل‌های گذشته را می‌بیند)؛ کارمزد و اسلیپیج لحاظ نشده است.</li></ul>
+        ${cmp ? setupsCompareHtml(S.useSetups ? cmp : res, S.useSetups ? res : cmp, per) : ""}`;
     } catch (e) { box.className = "empty"; box.textContent = e.message; }
     finally { btn.disabled = false; }
   }
@@ -740,17 +771,19 @@
     $("#kProv").innerHTML = Object.entries(FA.ai.PROVIDERS).map(([id, m]) => `<option value="${id}">${esc(m.label)}</option>`).join("");
     $("#kProv").onchange = (e) => { stashProv(); fillProv(e.target.value); };
     fillProv(tmp.provider || "gemini");
-    $("#kTwelve").value = S.keys.twelve || ""; $("#kRelay").value = S.keys.relay || ""; $("#kThr").value = S.thr;
+    $("#kTwelve").value = S.keys.twelve || ""; $("#kRelay").value = S.keys.relay || ""; $("#kThr").value = S.thr; if ($("#kSetups")) $("#kSetups").checked = !!S.useSetups;
     $("#dlgSettings").showModal();
   }
   $("#dlgSettings").addEventListener("close", () => {
     if ($("#dlgSettings").returnValue !== "save") return;
     stashProv(); tmp.provider = $("#kProv").value; tmp.twelve = $("#kTwelve").value.trim(); tmp.relay = $("#kRelay").value.trim(); S.keys = tmp; FA.data.setRelay(S.keys.relay);
     S.thr = Math.max(40, Math.min(95, +$("#kThr").value || 70)); save("fa_keys", S.keys); save("fa_thr", S.thr); updateFundHint();
+    if ($("#kSetups")) { S.useSetups = $("#kSetups").checked; save("fa_use_setups", S.useSetups); }
     if (S.candles.length) reanalyze();
   });
   $("#kClear").onclick = () => { S.keys = { provider: S.keys.provider || "gemini", models: {} }; save("fa_keys", S.keys); $("#kKey").value = $("#kTwelve").value = ""; tmp = JSON.parse(JSON.stringify(S.keys)); };
 
   FA.data.setRelay(S.keys.relay);
+  FA.app = { candles: () => S.candles };   // read-only access for add-ons (setup drawings)
   init();
 })();

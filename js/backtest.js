@@ -14,7 +14,7 @@
     while (i < candles.length - 2) {
       const slice = candles.slice(Math.max(0, i - win + 1), i + 1);
       // walk-forward: the engine only sees the bars up to i (no lookahead, no repaint)
-      const a = FA.signal.analyze(slice, { marketEntry: true, threshold: 0, early });
+      const a = FA.signal.analyze(slice, { marketEntry: true, threshold: 0, early, useSetups: !!opts.useSetups });
       evals++;
       if (a.direction !== "none" && a.plan) {
         const p = a.plan, s = p.side === "long" ? 1 : -1, end = Math.min(candles.length - 1, i + horizon);
