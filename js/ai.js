@@ -32,13 +32,13 @@
 
   const PROVIDERS = {
     gemini: { label: "Google Gemini (رایگان)", model: "gemini-3.8-flash", fallback: "gemini-3.6-flash", latest: "gemini-flash-latest", keyUrl: "https://aistudio.google.com/apikey", search: false, note: "برای گرفتن کلید رایگان وارد aistudio.google.com شوید. مدل‌های ۲.۵/۳ در ساعات شلوغ خطای «high demand» می‌دهند؛ این اپ با تأخیر پله‌ای (و احترام به Retry-After) دوباره تلاش می‌کند و در صورت لزوم مدل جایگزین را صدا می‌زند." },
-    openrouter: { label: "OpenRouter (مدل‌های رایگان)", model: "google/gemma-4-31b-it:free", fallback: "nvidia/nemotron-3-ultra-550b-a55b:free", latest: null, keyUrl: "https://openrouter.ai/keys", search: false, note: "کلید رایگان از openrouter.ai/keys. اگر مدل انتخابی پر بود، اپ خودکار به مدل جایگزین می‌رود." },
+    openrouter: { label: "OpenRouter (مدل‌های رایگان)", model: "google/gemma-4-31b-it:free", fallback: "nvidia/nemotron-3-ultra-550b-a55b:free", latest: null, keyUrl: "https://openrouter.ai/keys", search: false, note: "کلید رایگان از openrouter.ai/keys. اگر مدل انتخابی پر بود، اپ خودکار به مدل جایگزین می‌رود. برای جستجوی زنده‌ی اخبار توسط خود مدل، ‎:online‎ را به آخر نام مدل اضافه کنید (مثلاً openai/gpt-4o-mini:online؛ هزینه‌ی کمی دارد)." },
     anthropic: { label: "Anthropic Claude (پولی)", model: "claude-sonnet-4-20250514", fallback: "claude-3-5-haiku-20241022", latest: null, keyUrl: "https://console.anthropic.com/settings/keys", search: true, note: "پولی است ولی جستجوی زنده‌ی وب دارد و دقیق‌ترین تحلیل خبری را می‌دهد." },
   };
   PROVIDERS.custom = {
     label: "سازگار با OpenAI (DeepSeek / AvalAI / GapGPT / …) — مناسب ایران", model: "deepseek-chat", fallback: null, latest: null,
     keyUrl: "https://platform.deepseek.com/api_keys", search: false, custom: true,
-    note: "هر سرویسی که API سازگار با OpenAI داشته باشد (/chat/completions). برای ایران بدون VPN: DeepSeek مستقیم (https://api.deepseek.com ، مدل deepseek-chat) یا درگاه‌های ایرانی مثل AvalAI (https://api.avalai.ir/v1) و GapGPT (https://api.gapgpt.app/v1) با پرداخت ریالی. «آدرس پایه» را همان‌طور که سرویس می‌دهد وارد کنید.",
+    note: "هر سرویسی که API سازگار با OpenAI داشته باشد (/chat/completions). برای ایران بدون VPN: DeepSeek مستقیم (https://api.deepseek.com ، مدل deepseek-chat) یا درگاه‌های ایرانی مثل AvalAI (https://api.avalai.ir/v1) و GapGPT (https://api.gapgpt.app/v1) با پرداخت ریالی. «آدرس پایه» را همان‌طور که سرویس می‌دهد وارد کنید. اگر سرویس شما مدلی با جستجوی وب دارد (نامی که search یا sonar دارد، مثلاً gpt-4o-mini-search-preview یا perplexity/sonar)، همان را در «مدل» بگذارید تا خود مدل اخبار روز را جستجو کند؛ این مطمئن‌ترین روش در ایران است.",
   };
   const DEFAULT_BASE = "https://api.deepseek.com";
   const RETRYABLE = (st) => st === 0 || st === 408 || st === 425 || st === 429 || st === 500 || st === 502 || st === 503 || st === 504 || st === 529;
@@ -343,24 +343,31 @@
     '"upcoming_events":[{"event":"","when":"","importance":"high|medium|low","risk":"Persian, one sentence"}],"risks":["Persian"]}',
   ].join(" ");
 
+  /* A model that searches the web by itself (OpenRouter ":online", OpenAI "*-search-*", Perplexity "sonar"…)
+     needs no headlines from us — the most reliable route in Iran, because the AI gateway does the browsing. */
+  function webModel(keys) {
+    const prov = keys.provider || "gemini", m = (keys.models && keys.models[prov]) || PROVIDERS[prov].model || "";
+    return !!(PROVIDERS[prov].search || /(:online\b|search|sonar|perplexity)/i.test(m));
+  }
   async function fundamental(keys, ctx, onProgress) {
-    const prov = keys.provider || "gemini", native = PROVIDERS[prov].search;
+    const prov = keys.provider || "gemini", native = webModel(keys), tool = !!PROVIDERS[prov].search;
     let headlines = [], system, user;
     const base = `Instrument: ${ctx.name} (${ctx.tv}). Timeframe the trader uses: ${ctx.tf}. Today: ${ctx.today}. Last price: ${ctx.price}.\nTechnical engine currently says: ${ctx.tech}.\n`;
     if (native) {
       system = "You are a senior macro / fundamental analyst for traders. Use the web_search tool to find the most relevant news from the last 72 hours (central banks, inflation/jobs data, rates, geopolitics, sector or on-chain news, supply/demand) for the given instrument, and the high-impact events scheduled in the next 7 days. In future_events list news/events that could affect this asset SOON (e.g. Fed decisions, CPI, OPEC meetings) with their expected effect. Be calibrated: when evidence is mixed or thin, return neutral with low confidence. Never claim certainty and never invent headlines or sources. " + SHAPE;
       user = base + "Give the fundamental bias that matters for this timeframe.";
     } else {
-      if (onProgress) onProgress("دریافت تیترهای زنده…");
+      if (onProgress) onProgress("دریافت تیترهای زنده از چند منبع (حداکثر ۲۰ ثانیه)…");
       headlines = await getHeadlines(ctx.sym);
+      if (onProgress) onProgress(headlines.length ? `${headlines.length} تیتر دریافت شد؛ تحلیل با مدل…` : "تیتری دریافت نشد؛ تحلیل با مدل بدون تیتر (اطمینان کم)…");
       system = "You are a senior macro / fundamental analyst for traders. You have NO web access. Base the analysis ONLY on the headlines supplied by the user (and well-known structural drivers of this instrument). Never invent headlines, numbers or sources; every driver must come from a supplied headline. If fewer than 3 headlines are relevant, return neutral with confidence <= 30. In future_events put scheduled/announced events that could soon move this asset (central-bank meetings, data releases, geopolitical or supply events) — if nothing specific is known, return an empty array, never invent dates. Be calibrated and never claim certainty. " + SHAPE;
       user = base + "Recent headlines (newest first):\n" + (headlines.length ? headlines.map((h) => `- [${h.date}] ${h.title} (${h.src})`).join("\n") : "(no headlines could be fetched)") + "\nGive the fundamental bias that matters for this timeframe.";
     }
-    const out = parseJson(await complete(keys, { system, messages: [{ role: "user", content: user }], maxTokens: 3000, search: native, onProgress }));
+    const out = parseJson(await complete(keys, { system, messages: [{ role: "user", content: user }], maxTokens: 3000, search: tool, onProgress }));
     out.score = Math.max(-1, Math.min(1, +out.score || 0));
     out.confidence = Math.max(0, Math.min(100, +out.confidence || 0));
     if (!native && headlines.length < 3) { out.confidence = Math.min(out.confidence, 30); out.risks = (out.risks || []).concat(["تیتر زنده‌ی کافی دریافت نشد؛ این تحلیل قابل‌اتکا نیست."]); }
-    out.sourceNote = native ? "جستجوی زنده‌ی وب (Claude)" : `${headlines.length} تیتر از GDELT (رایگان) · مدل ${prov}`;
+    out.sourceNote = native ? (tool ? "جستجوی زنده‌ی وب (Claude)" : "جستجوی زنده‌ی وب توسط خود مدل") : `${headlines.length} تیتر خبری (Bing / GDELT / Yahoo) · مدل ${prov}`;
     return out;
   }
 
@@ -430,7 +437,7 @@
   }
 
   async function screener(keys, ctx, onProgress) {
-    const prov = keys.provider || "gemini", native = PROVIDERS[prov].search;
+    const prov = keys.provider || "gemini", native = webModel(keys);
     const onProg = onProgress || (() => {});
     const all = (ctx.markets || []).filter((m) => m && m.id);
     if (!all.length) throw new Error("بازاری برای رتبه‌بندی نیست؛ اول «اسکن همه‌ی بازارها» را اجرا کنید.");
@@ -461,7 +468,7 @@
       const user = headTxt + "Market scan (these are the ONLY tradeable symbols):\n" + ch.map(marketRow).join("\n") + "\nRank the best entries for the next days (best first, side \"none\" for ones to skip).";
       onProg(label);
       return parseJson(await complete(keys, {
-        system, messages: [{ role: "user", content: user }], maxTokens: 6000, search: native, onProgress: onProg,
+        system, messages: [{ role: "user", content: user }], maxTokens: 6000, search: !!PROVIDERS[prov].search, onProgress: onProg,
         retry: { attempts: 1 },   // batching + the second pass below already handle retries
         timeoutMs: 60000,
       }));
@@ -521,5 +528,5 @@
     ].join("\n");
   }
 
-  FA.ai = { PROVIDERS, complete, fundamental, screener, chat, chatSystem, getHeadlines, newsQuery, gdeltNews, economicCalendar, parseJson, repairTruncated, firstObject, normalizeRanked, localRank, marketRow };
+  FA.ai = { PROVIDERS, webModel, complete, fundamental, screener, chat, chatSystem, getHeadlines, newsQuery, gdeltNews, economicCalendar, parseJson, repairTruncated, firstObject, normalizeRanked, localRank, marketRow };
 })(typeof window !== "undefined" ? window : globalThis);

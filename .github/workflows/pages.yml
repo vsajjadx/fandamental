@@ -37,6 +37,8 @@ jobs:
         run: node tests/tokens.test.js
       - name: Volume + free news-tone fundamental
         run: node tests/fundamental.test.js
+      - name: News layer (parallel sources, time budget, Bing RSS, web-search models)
+        run: node tests/news.test.js
       - name: Multi-timeframe view
         run: node tests/mtf.test.js
       - name: MT5 bridge (web side)
