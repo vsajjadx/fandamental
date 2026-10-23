@@ -93,6 +93,76 @@
     })).filter((h) => h.title);
   }
 
+  /* ---------------- GDELT news tone → free fundamental sentiment (no AI key needed) ----------------
+     GDELT scores the emotional tone of every article (roughly −10 … +10; most news sits between −3 and +1).
+     We compare the average tone of the last 72 hours with the days before it: news turning clearly more
+     positive → bullish tilt, more negative → bearish tilt. For an FX pair, base minus quote currency.
+     It is a weak, transparent signal (tone is not price direction), so its confidence is capped at 35. */
+  async function gdeltTone(q, span) {
+    const wait = gdeltNext - Date.now();
+    if (wait > 0) await sleep(wait);
+    gdeltNext = Date.now() + 5200;
+    const url = "https://api.gdeltproject.org/api/v2/doc/doc?query=" + encodeURIComponent(q + " sourcelang:english") +
+      "&mode=timelinetone&format=json&timespan=" + (span || "7d");
+    let j;
+    try { j = await relayJson(url, 16000); }
+    catch (e) { gdeltNext = Date.now() + 7000; await sleep(6000); j = await relayJson(url, 16000); }
+    const s = j && j.timeline && j.timeline[0] && j.timeline[0].data;
+    if (!Array.isArray(s)) throw new Error("GDELT: پاسخ لحن اخبار نامعتبر");
+    return s.map((p) => ({ t: Date.parse(String(p.date).replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, "$1-$2-$3T$4:$5:$6Z")) / 1000, v: +p.value }))
+      .filter((p) => isFinite(p.t) && isFinite(p.v));
+  }
+
+  /** Pure: tone shift of the last 72h against the earlier part of the window. */
+  function toneShift(series, nowSec) {
+    const now = nowSec || Math.max(...series.map((p) => p.t));
+    const recent = series.filter((p) => p.t > now - 72 * 3600), base = series.filter((p) => p.t <= now - 72 * 3600);
+    if (recent.length < 12 || base.length < 12) return null;
+    const mean = (a) => a.reduce((s, p) => s + p.v, 0) / a.length;
+    const r = mean(recent), b = mean(base);
+    return { recent: r, base: b, delta: r - b, n: series.length };
+  }
+
+  function toneFund(shifts, label) {
+    const clamp = (x) => Math.max(-1, Math.min(1, x));
+    const d = shifts.base ? shifts.base.delta - (shifts.quote ? shifts.quote.delta : 0) : NaN;
+    if (!isFinite(d)) return null;
+    const score = clamp(d / 1.5);
+    const bias = score > 0.15 ? "bullish" : score < -0.15 ? "bearish" : "neutral";
+    const n = (shifts.base ? shifts.base.n : 0) + (shifts.quote ? shifts.quote.n : 0);
+    const confidence = Math.round(Math.min(35, 15 + Math.abs(score) * 20) * Math.min(1, n / (shifts.quote ? 240 : 120)));
+    const f2 = (x) => (x >= 0 ? "+" : "") + x.toFixed(2);
+    const part = (k, nm) => (shifts[k] ? `${nm}: لحن ۷۲ ساعت اخیر ${f2(shifts[k].recent)} در برابر ${f2(shifts[k].base)} روزهای قبل (تغییر ${f2(shifts[k].delta)})` : "");
+    const summary = shifts.quote
+      ? `لحن اخبار ${label.base} نسبت به ${label.quote} ${score > 0.15 ? "مثبت‌تر شده" : score < -0.15 ? "منفی‌تر شده" : "تغییر معناداری نکرده"} است. ${part("base", label.base)} · ${part("quote", label.quote)}.`
+      : `لحن اخبار ${label.base} در ۷۲ ساعت اخیر ${score > 0.15 ? "مثبت‌تر" : score < -0.15 ? "منفی‌تر" : "تقریباً بدون تغییر"} نسبت به روزهای قبل است. ${part("base", label.base)}.`;
+    return {
+      kind: "tone", bias, score, confidence, summary, drivers: [], future_events: [], upcoming_events: [],
+      sourceNote: "لحن اخبار جهانی از GDELT (رایگان، بدون هوش مصنوعی)",
+      risks: ["این فقط لحن اخبار است، نه تحلیل محتوای آن؛ اطمینان آن کم است و وزن کمی در امتیاز دارد. برای تحلیل کامل‌تر، کلید یک سرویس AI را در ⚙ تنظیمات وارد کنید."],
+    };
+  }
+
+  /** Free fundamental bias for a symbol (always resolves; null when GDELT is unreachable or data is thin). */
+  async function sentimentFund(sym) {
+    const key = "tone:" + sym.id, cached = cacheGet(key, 2 * 3600e3);
+    if (cached) return cached;
+    try {
+      const a = sym.id.slice(0, 3), b = sym.id.slice(3, 6);
+      let out = null;
+      if (sym.fx && CCY[a] && CCY[b]) {
+        const base = toneShift(await gdeltTone("(" + CCY[a].join(" OR ") + ")"));
+        const quote = toneShift(await gdeltTone("(" + CCY[b].join(" OR ") + ")"));
+        if (base && quote) out = toneFund({ base, quote }, { base: a, quote: b });
+      } else {
+        const base = toneShift(await gdeltTone(newsQuery(sym)));
+        if (base) out = toneFund({ base }, { base: sym.name });
+      }
+      if (out) cacheWrite(key, out);
+      return out;
+    } catch (e) { return null; }
+  }
+
   /* ---------------- Yahoo Finance news search (fallback) ---------------- */
   function yahooUrl(sym) {
     const q = sym.yh || sym.tv || sym.id;
@@ -153,5 +223,5 @@
     return (events || []).filter((e) => cur.has(e.country)).sort((a, b) => b.ts - a.ts);
   }
 
-  FA.news = { economicCalendar, gdeltNews, newsQuery, assetNews, matchCalendar, symbolCurrencies, parseCalendar, parseYahooNews };
+  FA.news = { gdeltTone, toneShift, toneFund, sentimentFund, economicCalendar, gdeltNews, newsQuery, assetNews, matchCalendar, symbolCurrencies, parseCalendar, parseYahooNews };
 })(typeof window !== "undefined" ? window : globalThis);

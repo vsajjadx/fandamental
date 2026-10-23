@@ -194,7 +194,7 @@
   function setSymbol(id) {
     S.sym = D.SYMBOLS.find((s) => s.id === id) || S.sym; save("fa_sym", S.sym.id);
     $("#symbol").value = S.sym.id; $$("#watch [data-sym]").forEach((b) => b.classList.toggle("on", b.dataset.sym === S.sym.id));
-    S.fund = null; $("#fundBox").className = "empty"; $("#fundBox").textContent = "تحلیل خبری برای این نماد اجرا نشده."; S.dirty.tv = S.dirty.news = true;
+    S.fund = null; S.fundTried = null; $("#fundBox").className = "empty"; $("#fundBox").textContent = "تحلیل خبری برای این نماد اجرا نشده."; S.dirty.tv = S.dirty.news = true;
     if (S.centerTab === "tv") renderTV(); if (S.rightTab === "fund") renderNews();
     loadNews();
     run();
@@ -420,10 +420,11 @@
       </div>
       ${r.signalType === "early" && r.timing ? `<div class="note-early">⚡ ${esc(r.timing)}</div>` : ""}
       ${plan}
-      ${r.fund ? `<div class="hint" style="margin-top:8px">فاندامنتال AI: <b>${esc({ bullish: "صعودی", bearish: "نزولی", neutral: "خنثی" }[r.fund.bias] || r.fund.bias)}</b> (اطمینان ${Math.round(r.fund.confidence)}%)</div>` : ""}
+      ${r.fund ? `<div class="hint" style="margin-top:8px">${r.fund.kind === "tone" ? "فاندامنتال (لحن اخبار)" : "فاندامنتال AI"}: <b>${esc({ bullish: "صعودی", bearish: "نزولی", neutral: "خنثی" }[r.fund.bias] || r.fund.bias)}</b> (اطمینان ${Math.round(r.fund.confidence)}%)</div>` : ""}
       ${sup.length ? `<h4>دلایل هم‌جهت</h4><ul class="reasons">${sup.map(li).join("")}</ul>` : ""}
       ${opp.length ? `<h4>نشانه‌های مخالف</h4><ul class="reasons">${opp.map(li).join("")}</ul>` : ""}
-      ${r.warnings.length ? `<ul class="warns">${r.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}`;
+      ${r.warnings.length ? `<ul class="warns">${r.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+      ${(r.notes || []).length ? `<ul class="notes">${r.notes.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}`;
     const calc = () => {
       if (!r.plan) return; const bal = +$("#cBal").value || 0, rk = +$("#cRisk").value || 0; S.calc = { bal, risk: rk }; save("fa_calc", S.calc);
       const amt = (bal * rk) / 100, units = amt / r.plan.risk;
@@ -486,6 +487,19 @@
   function autoFund() {
     if (S.fund || S.autoFundBusy) return;
     if (S.keys[S.keys.provider || "gemini"]) runFund(true);
+    else freeFund();
+  }
+  /* no AI key: free fundamental tilt from GDELT news tone (js/news.js). One try per symbol per session. */
+  async function freeFund() {
+    if (!FA.news || !FA.news.sentimentFund || S.fundTried === S.sym.id) return;
+    const sym = S.sym; S.fundTried = sym.id; S.autoFundBusy = true;
+    const box = $("#fundBox"); if (box && !S.fund) { box.className = "empty"; box.textContent = "در حال سنجش لحن اخبار (رایگان، بدون AI)…"; }
+    try {
+      const f = await FA.news.sentimentFund(sym);
+      if (S.sym.id !== sym.id) return;
+      if (f) { S.fund = f; renderFund(); reanalyze(); }
+      else if (box) { box.className = "empty"; box.textContent = "لحن اخبار برای این نماد در دسترس نبود (GDELT پاسخ نداد یا خبر کافی نبود). برای تحلیل کامل، کلید AI را در ⚙ وارد کنید."; }
+    } finally { S.autoFundBusy = false; }
   }
   function renderFund() {
     const f = S.fund, box = $("#fundBox"); if (!f) return; box.className = "";
