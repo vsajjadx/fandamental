@@ -216,7 +216,13 @@
   <script src="js/app.js"></script>
   <script>
     // offline-capable app shell (http/https only; silently skipped on file://)
-    if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+    // + look for a new version on every visit and every 30 min (the new worker reloads open tabs once itself)
+    if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
+        reg.update().catch(() => {});
+        setInterval(() => reg.update().catch(() => {}), 30 * 60 * 1000);
+      }).catch(() => {}));
+    }
   </script>
 </body>
 </html>
