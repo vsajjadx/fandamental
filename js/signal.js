@@ -93,6 +93,24 @@
       add("vwap", "VWAP (daily)", "vol", f(S.vwap[i]), price > S.vwap[i] ? 0.5 : -0.5, 0.9);
     }
 
+    /* ---------- Tehran exchange: retail / institutional money flow (only when the candles carry it — js/tse.js) ----------
+       rn = net retail money (buy − sell value by individuals), rv = traded value, bp = retail buyer power.
+       Same-day data on each candle, so the back-test sees only what was known that day. */
+    {
+      const fk = [];
+      for (let k = Math.max(0, i - 4); k <= i; k++) if (ok(c[k].rn) && ok(c[k].rv) && c[k].rv > 0) fk.push(k);
+      if (fk.length >= 3) {
+        const net = fk.reduce((a, k) => a + c[k].rn, 0), tot = fk.reduce((a, k) => a + c[k].rv, 0), r = net / tot;
+        const bn = (x) => (Math.abs(x) >= 1e9 ? (x / 1e10).toFixed(1) + " میلیارد تومان" : (x / 1e7).toFixed(0) + " میلیون تومان");
+        add("flow_net", "ورود پول حقیقی (۵ روز)", "vol", `${r >= 0 ? "ورود" : "خروج"} ${bn(Math.abs(net))} (${(100 * r).toFixed(1)}٪ ارزش معاملات)`, clamp(r * 4), 1.3);
+        const bps = fk.slice(-3).map((k) => c[k].bp).filter((x) => ok(x) && x > 0);
+        if (bps.length) {
+          const gm = Math.exp(bps.reduce((a, x) => a + Math.log(x), 0) / bps.length);
+          add("flow_bp", "قدرت خریدار حقیقی (۳ روز)", "vol", gm.toFixed(2) + (gm >= 1.5 ? " (خریداران قوی‌تر)" : gm <= 0.67 ? " (فروشندگان قوی‌تر)" : ""), clamp(Math.log(gm) / Math.log(2)), 1.0);
+        }
+      }
+    }
+
     const sumScore = (arr) => { const w = arr.reduce((a, x) => a + x.w, 0); return w ? arr.reduce((a, x) => a + x.w * x.score, 0) / w : 0; };
     const tech = sumScore(items);
 

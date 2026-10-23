@@ -41,29 +41,29 @@
     { id: "NDX", name: "Nasdaq 100", group: "شاخص‌ها", tv: "FOREXCOM:NSXUSD", td: "NDX", yh: "^NDX" },
     { id: "DJI", name: "Dow Jones", group: "شاخص‌ها", tv: "FOREXCOM:DJI", td: "DJI", yh: "^DJI" },
     // بورس تهران — ۲۳ نماد پرتراورد با insCode تاییدشده + جستجوی زنده‌ی TSETMC برای هر نماد دیگر
-    { id: "TSE-فولاد", name: "فولاد مبارکه", group: "بورس تهران", tv: "", tse: "46348559193224090", td: "", yh: "" },
-    { id: "TSE-فملی", name: "ملی صنایع مس", group: "بورس تهران", tv: "", tse: "35425587644337450", td: "", yh: "" },
+    { id: "TSE-فولاد", name: "فولاد مبارکه اصفهان", group: "بورس تهران", tv: "", tse: "46348559193224090", td: "", yh: "" },
+    { id: "TSE-فملی", name: "ملی صنایع مس ایران", group: "بورس تهران", tv: "", tse: "35425587644337450", td: "", yh: "" },
     { id: "TSE-شپنا", name: "پالایش نفت اصفهان", group: "بورس تهران", tv: "", tse: "7745894403636165", td: "", yh: "" },
     { id: "TSE-شبندر", name: "پالایش نفت بندرعباس", group: "بورس تهران", tv: "", tse: "35366681030756042", td: "", yh: "" },
     { id: "TSE-خودرو", name: "ایران خودرو", group: "بورس تهران", tv: "", tse: "65883838195688438", td: "", yh: "" },
     { id: "TSE-وبملت", name: "بانک ملت", group: "بورس تهران", tv: "", tse: "778253364357513", td: "", yh: "" },
     { id: "TSE-وتجارت", name: "بانک تجارت", group: "بورس تهران", tv: "", tse: "63917421733088077", td: "", yh: "" },
-    { id: "TSE-وپاسار", name: "پاسارگاد (پاسارگاد) بانک", group: "بورس تهران", tv: "", tse: "9536587154100457", td: "", yh: "" },
-    { id: "TSE-وبصادر", name: "بانک صادرات", group: "بورس تهران", tv: "", tse: "28320293733348826", td: "", yh: "" },
-    { id: "TSE-شستا", name: "توسعه صنایع بهشهر", group: "بورس تهران", tv: "", tse: "2400322364771558", td: "", yh: "" },
-    { id: "TSE-خساپا", name: "سیمان خوزستان و سپهر", group: "بورس تهران", tv: "", tse: "44891482026867833", td: "", yh: "" },
+    { id: "TSE-وپاسار", name: "بانک پاسارگاد", group: "بورس تهران", tv: "", tse: "9536587154100457", td: "", yh: "" },
+    { id: "TSE-وبصادر", name: "بانک صادرات ایران", group: "بورس تهران", tv: "", tse: "28320293733348826", td: "", yh: "" },
+    { id: "TSE-شستا", name: "سرمایه‌گذاری تأمین اجتماعی", group: "بورس تهران", tv: "", tse: "2400322364771558", td: "", yh: "" },
+    { id: "TSE-خساپا", name: "سایپا", group: "بورس تهران", tv: "", tse: "44891482026867833", td: "", yh: "" },
     { id: "TSE-ذوب", name: "ذوب آهن اصفهان", group: "بورس تهران", tv: "", tse: "71483646978964608", td: "", yh: "" },
-    { id: "TSE-کگل", name: "کشت و صنعت گلبرگ", group: "بورس تهران", tv: "", tse: "35700344742885862", td: "", yh: "" },
-    { id: "TSE-غگل", name: "گل گهر", group: "بورس تهران", tv: "", tse: "22299894048845903", td: "", yh: "" },
-    { id: "TSE-بپاس", name: "پتروشیمی پاسارگاد", group: "بورس تهران", tv: "", tse: "51971068201094874", td: "", yh: "" },
-    { id: "TSE-فنورد", name: "فولاد آلیاژی یزد", group: "بورس تهران", tv: "", tse: "56324206651661881", td: "", yh: "" },
-    { id: "TSE-کچاد", name: "کالسیمنچاد (چادرملو)", group: "بورس تهران", tv: "", tse: "18027801615184692", td: "", yh: "" },
-    { id: "TSE-پارسان", name: "پارسان جنوب", group: "بورس تهران", tv: "", tse: "23441366113375722", td: "", yh: "" },
-    { id: "TSE-همراه", name: "همراه اول", group: "بورس تهران", tv: "", tse: "68635710163497089", td: "", yh: "" },
-    { id: "TSE-شتران", name: "ایران ترانسفو", group: "بورس تهران", tv: "", tse: "51617145873056483", td: "", yh: "" },
-    { id: "TSE-خمهر", name: "پتروشیمی خمیر", group: "بورس تهران", tv: "", tse: "17330546482145553", td: "", yh: "" },
-    { id: "TSE-کگهر", name: "کروی (کگهر)", group: "بورس تهران", tv: "", tse: "30703140537034664", td: "", yh: "" },
-    { id: "TSE-وبهمن", name: "صنایع بهمن (خودرو)", group: "بورس تهران", tv: "", tse: "18063426072758458", td: "", yh: "" },
+    { id: "TSE-کگل", name: "معدنی و صنعتی گل‌گهر", group: "بورس تهران", tv: "", tse: "35700344742885862", td: "", yh: "" },
+    { id: "TSE-غگل", name: "گلوکوزان", group: "بورس تهران", tv: "", tse: "22299894048845903", td: "", yh: "" },
+    { id: "TSE-بپاس", name: "بیمه پاسارگاد", group: "بورس تهران", tv: "", tse: "51971068201094874", td: "", yh: "" },
+    { id: "TSE-فنورد", name: "نورد و قطعات فولادی", group: "بورس تهران", tv: "", tse: "56324206651661881", td: "", yh: "" },
+    { id: "TSE-کچاد", name: "معدنی و صنعتی چادرملو", group: "بورس تهران", tv: "", tse: "18027801615184692", td: "", yh: "" },
+    { id: "TSE-پارسان", name: "گسترش نفت و گاز پارسیان", group: "بورس تهران", tv: "", tse: "23441366113375722", td: "", yh: "" },
+    { id: "TSE-همراه", name: "ارتباطات سیار ایران (همراه اول)", group: "بورس تهران", tv: "", tse: "68635710163497089", td: "", yh: "" },
+    { id: "TSE-شتران", name: "پالایش نفت تهران", group: "بورس تهران", tv: "", tse: "51617145873056483", td: "", yh: "" },
+    { id: "TSE-خمهر", name: "مهرکام‌پارس", group: "بورس تهران", tv: "", tse: "17330546482145553", td: "", yh: "" },
+    { id: "TSE-کگهر", name: "سنگ آهن گهرزمین", group: "بورس تهران", tv: "", tse: "30703140537034664", td: "", yh: "" },
+    { id: "TSE-وبهمن", name: "سرمایه‌گذاری بهمن", group: "بورس تهران", tv: "", tse: "18063426072758458", td: "", yh: "" },
   ];
 
   const TIMEFRAMES = [
@@ -308,10 +308,16 @@
   }
   function parseTsetmc(j) {
     const rows = (j && j.closingPriceDaily) || [];
-    return rows.map((r) => ({
-      t: Math.floor(Date.parse(String(r.dEven).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3") + "T00:00:00Z") / 1000),
-      o: num(r.pOpening), h: num(r.priceMax), l: num(r.priceMin), c: num(r.pClosing), v: +(r.qTotTran || 0),
-    })).filter((x) => isFinite(x.t) && isFinite(x.c) && x.c > 0 && isFinite(x.o) && x.o > 0).sort((a, b) => a.t - b.t);
+    // real cdn.tsetmc.com fields: priceFirst (open), qTotTran5J (volume), zTotTran (trades). Older field names kept as fallback.
+    return rows.filter((r) => !(r.zTotTran === 0 || r.zTotTran === "0")).map((r) => {
+      const c = num(r.pClosing), o = num(r.priceFirst != null ? r.priceFirst : r.pOpening);
+      const oo = isFinite(o) && o > 0 ? o : num(r.priceYesterday);
+      const h = num(r.priceMax), l = num(r.priceMin);
+      return {
+        t: Math.floor(Date.parse(String(r.dEven).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3") + "T00:00:00Z") / 1000),
+        o: oo, h: Math.max(h > 0 ? h : c, c, oo), l: Math.min(l > 0 ? l : c, c, oo), c, v: +(r.qTotTran5J != null ? r.qTotTran5J : r.qTotTran || 0),
+      };
+    }).filter((x) => isFinite(x.t) && isFinite(x.c) && x.c > 0 && isFinite(x.o) && x.o > 0).sort((a, b) => a.t - b.t);
   }
   async function fromTsetmc(insCode, limit) {
     const j = await tseGet("ClosingPrice/GetClosingPriceDailyList/" + insCode + "/" + Math.min(limit, 500), 10000);
@@ -340,6 +346,10 @@
      timeframe to 1D and tell the user why. */
   function resolveTimeframe(sym, tf, keys) {
     const hasKey = !!(keys && keys.twelve);
+    // the Tehran exchange publishes daily candles only (TSETMC) — never label daily data as 5m/1H
+    if (sym && (sym.tse || sym.tseIndex) && tf.id !== "1d") {
+      return { tf: TIMEFRAMES.find((t) => t.id === "1d") || tf, changed: true, reason: "بورس تهران فقط داده‌ی روزانه دارد؛ تایم‌فریم به 1D تغییر کرد." };
+    }
     if (!sym || tf.id === "1d" || sym.bn || sym.tse || hasKey) return { tf, changed: false };
     const d1 = TIMEFRAMES.find((t) => t.id === "1d") || tf;
     return { tf: d1, changed: true, reason: "منابع رایگان برای «" + sym.name + "» فقط کندل روزانه می‌دهند؛ تایم‌فریم به 1D تغییر کرد. برای تایم‌فریم‌های دقیق‌تر کلید رایگان Twelve Data را در تنظیمات وارد کنید." };
@@ -360,8 +370,10 @@
       } catch (e) { fail("Crypto", e); }
     }
     // 2) TSETMC — بورس تهران
-    if (sym.tse) {
+    if (sym.tse || sym.tseIndex) {
       try {
+        // js/tse.js: adjusted prices + retail/institutional flow + indices; plain daily list if it is not loaded
+        if (FA.tse && FA.tse.candles) return await FA.tse.candles(sym, limit);
         const c = await fromTsetmc(sym.tse, limit);
         return { candles: c, source: "TSETMC (بورس تهران)", note: "داده‌ی روزانه؛ فقط از داخل ایران (یا با رله‌ی رایگان) در دسترس است." };
       } catch (e) { fail("TSETMC", e); }
@@ -405,7 +417,7 @@
 
   FA.data = {
     SYMBOLS, TIMEFRAMES, fetchCandles, parseCsv, getJson, sleep, num, RELAY, hedge, setRelay, jsonTasks, fromCrypto, parseUdf, udfUrls,
-    fromBinance, fromTwelve, fromFrankfurter, fromCoinGecko, fromYahoo, fromTsetmc, tseSearch, spotPrice,
+    fromBinance, fromTwelve, fromFrankfurter, fromCoinGecko, fromYahoo, fromTsetmc, tseSearch, tseGet, spotPrice,
     parseBinance, parseTwelve, parseFrankfurter, parseCoinGecko, parseYahoo, parseTsetmc, rangeForTf, resolveTimeframe,
   };
 })(typeof window !== "undefined" ? window : globalThis);

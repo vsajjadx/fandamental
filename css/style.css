@@ -210,3 +210,15 @@ table.tktable small { color: var(--mut); }
 table.tktable { font-size: 12px; } table.tktable td, table.tktable th { padding: 4px 3px; }
 table.tktable .mtf-card .mtf-kv div { flex-wrap: wrap; } table.tktable .mtf-card { white-space: normal; }
 .notes { margin: 8px 0 0; padding: 0; list-style: none; } .notes li { font-size: 11.5px; color: var(--mut); padding: 2px 0; } .notes li::before { content: "ℹ "; color: var(--acc); }
+
+/* Tehran exchange market watch */
+.tsehead { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.tsechips { display: flex; gap: 6px; flex-wrap: wrap; }
+.tsechip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: var(--bg2, rgba(255,255,255,.03)); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; color: inherit; cursor: pointer; font: inherit; font-size: 12px; }
+.tsechip:hover { border-color: var(--acc, #4aa3ff); } .tsechip span { font-family: var(--mono); direction: ltr; }
+.tsectl { flex-wrap: wrap; gap: 6px; } .tsectl input[type=search] { min-width: 160px; }
+table.tsetable td, table.tsetable th { vertical-align: middle; white-space: nowrap; font-size: 12px; font-family: inherit; direction: rtl; text-align: right; }
+table.tsetable td.tkn small { display: block; color: var(--mut); max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+table.tsetable .badge { margin-top: 0; padding: 0 6px; font-size: 10.5px; }
+.tsefund { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); } .tsefund h4 { margin: 0 0 4px; }
+.tsekv { margin: 8px 0; }

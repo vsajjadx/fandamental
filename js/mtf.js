@@ -87,7 +87,7 @@
     const D = FA.data, keys = load("fa_keys", {}), thr = load("fa_thr", 70);
     const row = V.rows[tf.id] || (V.rows[tf.id] = { tf });
     const fit = D.resolveTimeframe(V.sym, tf, keys);
-    if (fit.changed) { Object.assign(row, { state: "na", err: "منابع رایگان برای این دارایی فقط کندل روزانه دارند؛ برای این تایم‌فریم کلید رایگان Twelve Data را در ⚙ تنظیمات وارد کنید." }); return; }
+    if (fit.changed) { Object.assign(row, { state: "na", err: fit.reason || "برای این دارایی فقط کندل روزانه در دسترس است." }); return; }
     if (row.state === "ok" && row.at && Date.now() / 1000 - row.at < cacheTtlSec(tf) && row.fund === V.fund) return;
     row.state = row.state === "ok" ? "ok" : "loading"; row.loading = true; paint();
     try {
