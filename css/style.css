@@ -197,3 +197,15 @@ dialog label.chk { display: flex; gap: 8px; align-items: flex-start; } dialog la
 #r-setups .up { color: var(--up); } #r-setups .dn { color: var(--dn); }
 dl.kb { margin: 6px 0; font-size: 12.5px; } dl.kb dt { font-weight: 700; margin-top: 8px; } dl.kb dd { margin: 2px 0 0; color: #c9d1de; }
 .mtf-card .up { color: var(--up); } .mtf-card .dn { color: var(--dn); }
+
+/* ---- token screener ---- */
+.tokscreen { margin-top: 18px; border-top: 1px dashed var(--line2); padding-top: 6px; }
+.tkctl select { padding: 5px 8px; font-size: 12.5px; } .tkctl label.hint { display: inline-flex; gap: 5px; align-items: center; }
+table.tktable td { vertical-align: middle; } table.tktable td.tkn { font-family: inherit; direction: ltr; text-align: left; white-space: nowrap; }
+table.tktable td.tkn small { display: block; color: var(--mut); font-size: 10.5px; max-width: 95px; overflow: hidden; text-overflow: ellipsis; }
+table.tktable .btn { padding: 2px 8px; font-size: 11.5px; } table.tktable .badge { margin-top: 0; }
+.tkbar { display: inline-block; width: 38px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.08); vertical-align: middle; margin-inline-end: 4px; overflow: hidden; }
+.tkbar i { display: block; height: 100%; background: linear-gradient(90deg, var(--acc), var(--acc2)); }
+table.tktable small { color: var(--mut); }
+table.tktable { font-size: 12px; } table.tktable td, table.tktable th { padding: 4px 3px; }
+table.tktable .mtf-card .mtf-kv div { flex-wrap: wrap; } table.tktable .mtf-card { white-space: normal; }

@@ -784,6 +784,13 @@
   $("#kClear").onclick = () => { S.keys = { provider: S.keys.provider || "gemini", models: {} }; save("fa_keys", S.keys); $("#kKey").value = $("#kTwelve").value = ""; tmp = JSON.parse(JSON.stringify(S.keys)); };
 
   FA.data.setRelay(S.keys.relay);
-  FA.app = { candles: () => S.candles };   // read-only access for add-ons (setup drawings)
+  FA.app = {
+    candles: () => S.candles,   // read-only access for add-ons (setup drawings)
+    openSymbol(sym) {           // token screener: add a crypto symbol (if new) and analyse it on the chart
+      if (!D.SYMBOLS.some((s) => s.id === sym.id)) { D.SYMBOLS.push(sym); renderSymbolOptions(); }
+      setSymbol(sym.id); showCenter("analytic");
+      const c = $("#chartMain"); if (c && c.scrollIntoView) c.scrollIntoView({ behavior: "smooth", block: "center" });
+    },
+  };
   init();
 })();
