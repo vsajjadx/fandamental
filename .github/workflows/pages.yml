@@ -43,6 +43,8 @@ jobs:
         run: node tests/mt5.test.js
       - name: MT5 direct mode (no server) end to end with simulated EA
         run: node tests/mt5_direct.test.js
+      - name: Tehran exchange (real TSETMC snapshots)
+        run: node tests/tse.test.js
 
   server-tests:
     runs-on: ubuntu-latest
