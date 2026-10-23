@@ -196,8 +196,11 @@
 
     const warnings = [];
     if (S.adx.adx[i] < 18) warnings.push("ADX پایین است؛ بازار رنج/بی‌روند است و سیگنال‌های روندی قابل‌اعتماد نیستند.");
-    if (!S.hasVol) warnings.push("منبع داده حجم واقعی ندارد؛ اندیکاتورهای حجمی در محاسبه نیامده‌اند.");
-    if (!fund) warnings.push("تحلیل فاندامنتال AI اجرا نشده؛ فقط تکنیکال + پرایس‌اکشن لحاظ شده است.");
+    // informational notes (not problems with the analysis): shown separately, in a muted style
+    const notes = [];
+    if (!S.hasVol) notes.push("این منبع داده حجم معاملات ندارد (در فارکس و شاخص دلار حجم متمرکز وجود ندارد)؛ اندیکاتورهای حجمی برای این نماد کنار گذاشته شدند و بقیه‌ی تحلیل کامل است.");
+    if (!fund) notes.push("لایه‌ی فاندامنتال هنوز آماده نیست (اخبار در حال دریافت است یا منبع خبری در دسترس نبود)؛ فعلاً تکنیکال + پرایس‌اکشن لحاظ شده است.");
+    else if (fund.kind === "tone") notes.push("فاندامنتال از لحن اخبار GDELT (رایگان، بدون AI) با اطمینان کم لحاظ شده است؛ برای تحلیل کامل‌تر اخبار، کلید AI را در ⚙ وارد کنید.");
     if (Math.sign(tech) !== 0 && Math.sign(pa) !== 0 && Math.sign(tech) !== Math.sign(pa)) warnings.push("تکنیکال و پرایس‌اکشن هم‌جهت نیستند (واگرایی سیگنال).");
     if (fund && Math.sign(fund.score) !== 0 && dirSign !== 0 && Math.sign(fund.score) !== dirSign) warnings.push("جهت فاندامنتال مخالف جهت تکنیکال/پرایس‌اکشن است.");
     if (plan && plan.rr[0] < 1.2) warnings.push("نسبت ریسک به ریوارد تارگت اول ضعیف است.");
@@ -209,7 +212,7 @@
 
     return {
       price, atr: A, direction, confluence, tradeable, threshold, score: S_all, signalType, timing,
-      tech, pa, fund, plan, warnings, items, paItems, buys, sells, setups, usedSetups: !!(opt.useSetups && setups),
+      tech, pa, fund, plan, warnings, notes, items, paItems, buys, sells, setups, usedSetups: !!(opt.useSetups && setups),
       pa_data: { sw, st, levels: lv, patterns: pats, fib, pivots: piv, sups, ress },
       series: S, count: n, lastTime: c[i].t,
     };

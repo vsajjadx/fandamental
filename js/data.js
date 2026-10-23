@@ -231,11 +231,13 @@
   function parseCoinGecko(j, scale) {
     if (!j || !j.prices || !j.prices.length) throw new Error("CoinGecko: پاسخ نامعتبر");
     const k = scale && isFinite(scale) ? scale : 1, out = [];
+    const vol = new Map((j.total_volumes || []).map((x) => [Math.floor(x[0] / 1000), +x[1]]));
     for (let i = 0; i < j.prices.length; i++) {
       const t = Math.floor(j.prices[i][0] / 1000), c = +j.prices[i][1] * k;
       if (!isFinite(t) || !isFinite(c)) continue;
       const o = out.length ? out[out.length - 1].c : c;
-      out.push({ t, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 0 });
+      const v = vol.get(t);   // real 24h traded volume in USD (same timestamp as the price point)
+      out.push({ t, o, h: Math.max(o, c), l: Math.min(o, c), c, v: isFinite(v) && v > 0 ? v : 0 });
     }
     if (!out.length) throw new Error("CoinGecko: سابقه‌ی خالی");
     return out;

@@ -209,3 +209,4 @@ table.tktable .btn { padding: 2px 8px; font-size: 11.5px; } table.tktable .badge
 table.tktable small { color: var(--mut); }
 table.tktable { font-size: 12px; } table.tktable td, table.tktable th { padding: 4px 3px; }
 table.tktable .mtf-card .mtf-kv div { flex-wrap: wrap; } table.tktable .mtf-card { white-space: normal; }
+.notes { margin: 8px 0 0; padding: 0; list-style: none; } .notes li { font-size: 11.5px; color: var(--mut); padding: 2px 0; } .notes li::before { content: "ℹ "; color: var(--acc); }

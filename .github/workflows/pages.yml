@@ -35,6 +35,8 @@ jobs:
         run: node tests/setups.test.js
       - name: Crypto token screener (real CoinGecko snapshot)
         run: node tests/tokens.test.js
+      - name: Volume + free news-tone fundamental
+        run: node tests/fundamental.test.js
       - name: Multi-timeframe view
         run: node tests/mtf.test.js
       - name: MT5 bridge (web side)
