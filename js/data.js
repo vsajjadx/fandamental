@@ -404,7 +404,8 @@
   }
 
   FA.data = {
-    SYMBOLS, TIMEFRAMES, fetchCandles, parseCsv, getJson, sleep, num, RELAY, hedge, setRelay, jsonTasks, fromCrypto, parseUdf, udfUrls,
+    SYMBOLS, TIMEFRAMES, fetchCandles, parseCsv, getJson, sleep, num, RELAY, hedge, setRelay, jsonTasks,
+    personalRelay: (u) => (cfg.relay ? viaRelay(u) : null), fromCrypto, parseUdf, udfUrls,
     fromBinance, fromTwelve, fromFrankfurter, fromCoinGecko, fromYahoo, fromTsetmc, tseSearch, spotPrice,
     parseBinance, parseTwelve, parseFrankfurter, parseCoinGecko, parseYahoo, parseTsetmc, rangeForTf, resolveTimeframe,
   };

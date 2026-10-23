@@ -464,7 +464,7 @@
   }
   function updateFundHint() {
     const p = FA.ai.PROVIDERS[S.keys.provider || "gemini"];
-    $("#fundHint").textContent = p.search ? "جستجوی زنده‌ی وب با کلید شما" : "تیترهای زنده از GDELT + تحلیل مدل " + p.label;
+    $("#fundHint").textContent = FA.ai.webModel(S.keys) ? "جستجوی زنده‌ی وب توسط خود مدل" : "تیترهای زنده (Bing / GDELT / Yahoo، حداکثر ۲۰ ثانیه) + تحلیل مدل " + p.label;
   }
   async function runFund(auto) {
     if (S.autoFundBusy) return;
@@ -535,11 +535,14 @@
         } else { calEl.className = "empty"; calEl.textContent = "تقویم اقتصادی در دسترس نیست (فیلترینگ/قطع دسترسی)."; }
       }
       if (listEl) {
-        if (heads.status === "fulfilled" && heads.value.length) {
+        const hv = heads.status === "fulfilled" ? heads.value : { list: [], error: String(heads.reason && heads.reason.message || heads.reason) };
+        if (hv.list.length) {
           listEl.className = "";
-          listEl.innerHTML = heads.value.slice(0, 15).map((h) => `<div class="fcard"><b>${esc(h.title)}</b><small>${esc(h.src)}${h.ts ? " · " + new Date(h.ts * 1000).toLocaleDateString("fa-IR") : ""}</small></div>`).join("");
-        } else if (heads.status === "fulfilled") { listEl.className = "empty"; listEl.textContent = "خبر تازه‌ای برای این نماد پیدا نشد."; }
-        else { listEl.className = "empty"; listEl.textContent = "دریافت اخبار ممکن نشد (GDELT گاهی محدود می‌شود؛ بعداً دوباره امتحان کنید)."; }
+          listEl.innerHTML = `<div class="hint">منبع: ${esc(hv.source)}</div>` + hv.list.slice(0, 15).map((h) => `<div class="fcard"><b>${h.url ? `<a href="${esc(h.url)}" target="_blank" rel="noopener">${esc(h.title)}</a>` : esc(h.title)}</b><small>${esc(h.src)}${h.ts ? " · " + new Date(h.ts * 1000).toLocaleDateString("fa-IR") : ""}</small></div>`).join("");
+        } else {
+          listEl.className = "empty";
+          listEl.innerHTML = `خبری دریافت نشد. <small class="hint">${esc(hv.error || "")}</small><br><small class="hint">اگر منابع خبری در شبکه‌ی شما بسته‌اند: «رله‌ی شخصی» را در ⚙ تنظیمات بگذارید (راهنما: docs/RELAY.md) یا مدلی با جستجوی وب انتخاب کنید.</small>`;
+        }
       }
       if (S.rightTab === "fund") renderNews();
     } catch (e) { /* silent */ }
