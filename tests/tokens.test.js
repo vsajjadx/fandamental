@@ -1,0 +1,40 @@
+// Run: node tests/tokens.test.js — token screener on a real CoinGecko snapshot (tests/fixtures/coingecko_markets.json)
+require("../js/tokens.js");
+const T = globalThis.FA.tokens, rows = require("./fixtures/coingecko_markets.json");
+let fails = 0;
+const check = (n, c, x = "") => { console.log((c ? "PASS " : "FAIL ") + n + (x ? "  " + x : "")); if (!c) fails++; };
+const res = T.screen(rows, { minMc: 0 });
+const ex = new Map(res.excluded.map((e) => [e.id, e.excluded]));
+check("snapshot has 250 coins", rows.length === 250);
+check("major stablecoins excluded", ["tether", "usd-coin", "dai", "ethena-usde", "paypal-usd"].every((id) => /استیبل/.test(ex.get(id) || "")), ["tether", "usd-coin", "dai"].map((id) => ex.get(id)).join(" | "));
+check("euro/yen stablecoins and tokenized treasury funds excluded", ["eurc", "jpyc", "ousg", "usdy", "ustb", "eutbl"].every((sym) => { const r = rows.find((x) => x.symbol === sym); return !r || ex.has(r.id); }));
+check("real volatile coins with a flat month are kept (AAVE, DOT, ATOM, SUI)", ["aave", "polkadot", "cosmos", "sui"].filter((id) => rows.some((r) => r.id === id)).every((id) => !ex.has(id)));
+check("gold-backed tokens excluded", ["tether-gold", "pax-gold"].every((id) => /طلا/.test(ex.get(id) || "")));
+check("volatile coins that happen to trade near $1 are NOT excluded", ["sui", "filecoin", "axie-infinity"].filter((id) => rows.some((r) => r.id === id)).every((id) => !ex.has(id)));
+check("bitcoin and ethereum are scored", res.rows.some((r) => r.id === "bitcoin") && res.rows.some((r) => r.id === "ethereum"));
+check("every kept coin has a 0..100 score and parts in 0..1", res.rows.every((r) => r.score >= 0 && r.score <= 100 && Object.values(r.parts).every((v) => v == null || (v >= 0 && v <= 1))));
+const btc = res.rows.find((r) => r.id === "bitcoin");
+check("bitcoin's strength vs itself is neutral (0.5)", Math.abs(btc.rs30) < 1e-9 && Math.abs(btc.parts.strength - 0.5) < 1e-9);
+check("bitcoin: ~96% circulating → low dilution risk", btc.circ > 0.9 && btc.parts.dilution > 0.9 && btc.flags.some((f) => f.kind === "good"));
+check("sorted by score (desc)", res.rows.every((r, i, a) => i === 0 || a[i - 1].score >= r.score));
+
+// hand-made cases: the score reacts in the documented direction
+const base = { id: "x", symbol: "x", name: "X", current_price: 2, market_cap: 1e9, fully_diluted_valuation: 1e9, total_volume: 5e7, circulating_supply: 1e8, total_supply: 1e8, max_supply: 1e8, price_change_percentage_7d_in_currency: 5, price_change_percentage_30d_in_currency: 10, ath_change_percentage: -40 };
+const B = { id: "bitcoin", price_change_percentage_7d_in_currency: 0, price_change_percentage_30d_in_currency: 0 };
+const s0 = T.scoreToken(base, B);
+const diluted = T.scoreToken({ ...base, circulating_supply: 2e7, fully_diluted_valuation: 5e9 }, B);
+check("low float + high FDV → lower dilution score and risk flags", diluted.parts.dilution < s0.parts.dilution && diluted.flags.filter((f) => f.kind === "risk").length >= 2);
+const illiquid = T.scoreToken({ ...base, total_volume: 1e6 }, B);
+check("tiny volume → lower liquidity score + flag", illiquid.parts.liquidity < s0.parts.liquidity && illiquid.flags.some((f) => /نقدشوندگی/.test(f.text)));
+const wash = T.scoreToken({ ...base, total_volume: 3e9 }, B);
+check("volume above market cap → penalised (possible wash trading)", wash.parts.liquidity < s0.parts.liquidity && wash.flags.some((f) => /ساختگی/.test(f.text)));
+const weak = T.scoreToken({ ...base, price_change_percentage_30d_in_currency: -25, price_change_percentage_7d_in_currency: -10 }, B);
+check("underperforming BTC → lower strength", weak.parts.strength < s0.parts.strength && weak.score < s0.score);
+const pump = T.scoreToken({ ...base, price_change_percentage_7d_in_currency: 90 }, B);
+check("+90% in a week → late-entry warning", pump.flags.some((f) => /پامپ/.test(f.text)));
+check("size classes", T.sizeClass(2e10).id === "large" && T.sizeClass(5e9).id === "mid" && T.sizeClass(3e8).id === "small" && T.sizeClass(5e7).id === "micro");
+check("missing data → excluded, not crashing", !!T.scoreToken({ id: "z", market_cap: null, current_price: 1 }, B).excluded);
+const f = T.screen(rows, { minMc: 1e9, hideRisky: true });
+check("filters: min market cap + no-risk-flags", f.rows.every((r) => r.mc >= 1e9 && r.risky === 0) && f.rows.length < res.rows.length, `${f.rows.length} of ${res.rows.length}`);
+console.log("\ntop 5:", res.rows.slice(0, 5).map((r) => `${r.symbol}:${r.score}`).join("  "));
+console.log(fails ? "\n" + fails + " FAILED" : "\nALL PASSED"); process.exit(fails ? 1 : 0);

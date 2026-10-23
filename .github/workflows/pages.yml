@@ -33,6 +33,8 @@ jobs:
         run: node tests/site.test.js
       - name: Trading setups engine (patterns, no look-ahead, per-setup backtest)
         run: node tests/setups.test.js
+      - name: Crypto token screener (real CoinGecko snapshot)
+        run: node tests/tokens.test.js
       - name: Multi-timeframe view
         run: node tests/mtf.test.js
       - name: MT5 bridge (web side)
